@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gravity Playground</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #000; overflow: hidden; font-family: 'Segoe UI', sans-serif; }
+  canvas { display: block; }
+  #ui {
+    position: fixed; top: 16px; left: 16px; color: #aaa; font-size: 13px;
+    pointer-events: none; user-select: none; z-index: 10;
+    text-shadow: 0 0 6px #000;
+  }
+  #ui h1 { font-size: 20px; color: #fff; margin-bottom: 4px; }
+  #ui .controls { pointer-events: auto; margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap; }
+  #ui button {
+    background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15);
+    color: #ccc; padding: 5px 12px; border-radius: 6px; cursor: pointer;
+    font-size: 12px; transition: all .15s;
+  }
+  #ui button:hover { background: rgba(255,255,255,0.18); color: #fff; }
+  #ui button.active { background: rgba(100,180,255,0.25); border-color: rgba(100,180,255,0.5); color: #fff; }
+  #stats { position: fixed; top: 16px; right: 16px; color: #555; font-size: 12px; text-align: right; }
+</style>
+</head>
+<body>
+<div id="ui">
+  <h1>Gravity Playground</h1>
+  <div style="color:#666">Click &amp; drag to attract · Right-click to repel · Scroll to change mass</div>
+  <div class="controls">
+    <button onclick="burst()" title="Spawn 200 particles">💥 Burst</button>
+    <button onclick="toggleTrails(this)">🌈 Trails</button>
+    <button onclick="toggleMode(this)">🌀 Vortex</button>
+    <button onclick="clearAll()">🗑️ Clear</button>
+    <button onclick="toggleGravity(this)">🪐 Gravity</button>
+    <button onclick="toggleCollisions(this)">💎 Collisions</button>
+    <button onclick="spawnOrbits()">🔵 Orbits</button>
+    <button onclick="toggleTime(this)">⏱️ Slow-Mo</button>
+  </div>
+</div>
+<div id="stats"></div>
+<canvas id="c"></canvas>
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const stats = document.getElementById('stats');
+
+let W, H;
+function resize() { W = canvas.width = innerWidth; H = canvas.height = innerHeight; }
+resize();
+addEventListener('resize', resize);
+
+const particles = [];
+const MAX = 3000;
+let mouse = { x: W / 2, y: H / 2, down: false, right: false, mass: 800 };
+let showTrails = false;
+let vortexMode = false;
+let gravityEnabled = true;
+let collisionsEnabled = false;
+let timeScale = 1;
+
+class Particle {
+  constructor(x, y, vx, vy, r, color) {
+    this.x = x; this.y = y;
+    this.vx = vx; this.vy = vy;
+    this.r = r;
+    this.mass = r * r;
+    this.color = color || this.randomColor();
+    this.life = 1;
+    this.trail = [];
+  }
+  randomColor() {
+    const h = Math.random() * 360;
+    return `hsl(${h}, 90%, 65%)`;
+  }
+  update(dt) {
+    if (mouse.down || mouse.right) {
+      const dx = mouse.x - this.x;
+      const dy = mouse.y - this.y;
+      const dist = Math.sqrt(dx * dx + dy * dy) + 5;
+      const sign = mouse.right ? -1 : 1;
+      const force = sign * mouse.mass / (dist * dist) * 400;
+      if (vortexMode) {
+        const angle = Math.atan2(dy, dx) + (sign > 0 ? 0.8 : -0.8);
+        this.vx += Math.cos(angle) * force * dt;
+        this.vy += Math.sin(angle) * force * dt;
+      } else {
+        this.vx += (dx / dist) * force * dt;
+        this.vy += (dy / dist) * force * dt;
+      }
+    }
+
+    if (gravityEnabled) {
+      this.vy += 30 * dt;
+    }
+
+    this.vx *= 0.999;
+    this.vy *= 0.999;
+
+    this.x += this.vx * dt;
+    this.y += this.vy * dt;
+
+    if (this.x < this.r) { this.x = this.r; this.vx *= -0.7; }
+    if (this.x > W - this.r) { this.x = W - this.r; this.vx *= -0.7; }
+    if (this.y < this.r) { this.y = this.r; this.vy *= -0.7; }
+    if (this.y > H - this.r) { this.y = H - this.r; this.vy *= -0.7; }
+
+    if (showTrails) {
+      this.trail.push({ x: this.x, y: this.y });
+      if (this.trail.length > 20) this.trail.shift();
+    } else {
+      this.trail.length = 0;
+    }
+  }
+  draw() {
+    if (showTrails && this.trail.length > 1) {
+      ctx.beginPath();
+      ctx.moveTo(this.trail[0].x, this.trail[0].y);
+      for (let i = 1; i < this.trail.length; i++) {
+        ctx.lineTo(this.trail[i].x, this.trail[i].y);
+      }
+      ctx.strokeStyle = this.color.replace('65%', '45%').replace('1)', '0.3)');
+      ctx.lineWidth = this.r * 0.8;
+      ctx.lineCap = 'round';
+      ctx.stroke();
+    }
+
+    const speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+    const glow = Math.min(speed / 100, 1) * 12;
+
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.r, 0, Math.PI * 2);
+    ctx.fillStyle = this.color;
+    if (glow > 2) {
+      ctx.shadowColor = this.color;
+      ctx.shadowBlur = glow;
+    }
+    ctx.fill();
+    ctx.shadowBlur = 0;
+  }
+}
+
+function spawn(x, y, vx, vy, r, color) {
+  if (particles.length >= MAX) particles.splice(0, 1);
+  particles.push(new Particle(x, y, vx || 0, vy || 0, r || 2 + Math.random() * 3, color));
+}
+
+function burst() {
+  const cx = W / 2, cy = H / 2;
+  for (let i = 0; i < 200; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = 50 + Math.random() * 300;
+    spawn(cx, cy, Math.cos(angle) * speed, Math.sin(angle) * speed, 1.5 + Math.random() * 3);
+  }
+}
+
+function spawnOrbits() {
+  const cx = W / 2, cy = H / 2;
+  for (let ring = 0; ring < 4; ring++) {
+    const radius = 80 + ring * 60;
+    const count = 30 + ring * 15;
+    const hue = ring * 70;
+    const orbitalSpeed = Math.sqrt(30 * radius) * 0.7;
+    for (let i = 0; i < count; i++) {
+      const angle = (i / count) * Math.PI * 2 + Math.random() * 0.1;
+      const x = cx + Math.cos(angle) * radius;
+      const y = cy + Math.sin(angle) * radius;
+      const vx = -Math.sin(angle) * orbitalSpeed + (Math.random() - 0.5) * 10;
+      const vy = Math.cos(angle) * orbitalSpeed + (Math.random() - 0.5) * 10;
+      spawn(x, y, vx, vy, 2, `hsl(${hue + Math.random() * 30}, 85%, 65%)`);
+    }
+  }
+}
+
+function clearAll() { particles.length = 0; }
+
+function toggleTrails(btn) { showTrails = !showTrails; btn.classList.toggle('active'); }
+function toggleMode(btn) { vortexMode = !vortexMode; btn.classList.toggle('active'); }
+function toggleGravity(btn) { gravityEnabled = !gravityEnabled; btn.classList.toggle('active'); }
+function toggleCollisions(btn) { collisionsEnabled = !collisionsEnabled; btn.classList.toggle('active'); }
+function toggleTime(btn) {
+  timeScale = timeScale === 1 ? 0.2 : 1;
+  btn.classList.toggle('active');
+}
+
+function resolveCollisions() {
+  const grid = {};
+  const cellSize = 20;
+  for (const p of particles) {
+    const cx = Math.floor(p.x / cellSize);
+    const cy = Math.floor(p.y / cellSize);
+    const key = `${cx},${cy}`;
+    (grid[key] || (grid[key] = [])).push(p);
+  }
+  for (const key in grid) {
+    const cell = grid[key];
+    const [cx, cy] = key.split(',').map(Number);
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        const neighbor = grid[`${cx + dx},${cy + dy}`];
+        if (!neighbor) continue;
+        for (const a of cell) {
+          for (const b of neighbor) {
+            if (a === b || a.mass < b.mass) continue;
+            const ddx = b.x - a.x, ddy = b.y - a.y;
+            const dist = Math.sqrt(ddx * ddx + ddy * ddy);
+            const minDist = a.r + b.r;
+            if (dist < minDist && dist > 0) {
+              const nx = ddx / dist, ny = ddy / dist;
+              const overlap = minDist - dist;
+              a.x -= nx * overlap * 0.5;
+              a.y -= ny * overlap * 0.5;
+              b.x += nx * overlap * 0.5;
+              b.y += ny * overlap * 0.5;
+              const relVx = a.vx - b.vx, relVy = a.vy - b.vy;
+              const relDot = relVx * nx + relVy * ny;
+              if (relDot > 0) {
+                const j = relDot / (1 / a.mass + 1 / b.mass);
+                a.vx -= j * nx / a.mass;
+                a.vy -= j * ny / a.mass;
+                b.vx += j * nx / b.mass;
+                b.vy += j * ny / b.mass;
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+canvas.addEventListener('mousemove', e => { mouse.x = e.clientX; mouse.y = e.clientY; });
+canvas.addEventListener('mousedown', e => {
+  e.preventDefault();
+  if (e.button === 2) mouse.right = true;
+  else mouse.down = true;
+});
+canvas.addEventListener('mouseup', e => {
+  if (e.button === 2) mouse.right = false;
+  else mouse.down = false;
+});
+canvas.addEventListener('contextmenu', e => e.preventDefault());
+canvas.addEventListener('wheel', e => {
+  mouse.mass = Math.max(100, Math.min(5000, mouse.mass + e.deltaY * 2));
+});
+
+canvas.addEventListener('touchstart', e => {
+  e.preventDefault();
+  const t = e.touches[0];
+  mouse.x = t.clientX; mouse.y = t.clientY; mouse.down = true;
+}, { passive: false });
+canvas.addEventListener('touchmove', e => {
+  const t = e.touches[0];
+  mouse.x = t.clientX; mouse.y = t.clientY;
+}, { passive: false });
+canvas.addEventListener('touchend', () => { mouse.down = false; });
+
+let emitTimer = 0;
+let lastTime = performance.now();
+
+function loop(now) {
+  const rawDt = Math.min((now - lastTime) / 1000, 0.05);
+  lastTime = now;
+  const dt = rawDt * timeScale;
+
+  if (mouse.down || mouse.right) {
+    emitTimer += dt;
+    while (emitTimer > 0.01) {
+      emitTimer -= 0.01;
+      const angle = Math.random() * Math.PI * 2;
+      spawn(
+        mouse.x + Math.cos(angle) * 20,
+        mouse.y + Math.sin(angle) * 20,
+        Math.cos(angle) * (20 + Math.random() * 40),
+        Math.sin(angle) * (20 + Math.random() * 40)
+      );
+    }
+  } else {
+    emitTimer = 0;
+  }
+
+  if (showTrails) {
+    ctx.fillStyle = 'rgba(0,0,0,0.08)';
+    ctx.fillRect(0, 0, W, H);
+  } else {
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = '#050508';
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  for (const p of particles) p.update(dt);
+  if (collisionsEnabled) resolveCollisions();
+  for (const p of particles) p.draw();
+
+  if (mouse.down || mouse.right) {
+    const gradient = ctx.createRadialGradient(mouse.x, mouse.y, 0, mouse.x, mouse.y, mouse.mass / 10);
+    if (mouse.right) {
+      gradient.addColorStop(0, 'rgba(255,80,50,0.25)');
+      gradient.addColorStop(1, 'rgba(255,80,50,0)');
+    } else {
+      gradient.addColorStop(0, 'rgba(80,160,255,0.25)');
+      gradient.addColorStop(1, 'rgba(80,160,255,0)');
+    }
+    ctx.beginPath();
+    ctx.arc(mouse.x, mouse.y, mouse.mass / 10, 0, Math.PI * 2);
+    ctx.fillStyle = gradient;
+    ctx.fill();
+  }
+
+  stats.textContent = `${particles.length} particles · mass: ${mouse.mass.toFixed(0)}`;
+  requestAnimationFrame(loop);
+}
+
+burst();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
