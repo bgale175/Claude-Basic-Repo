@@ -32,12 +32,19 @@ score more), or Survival (three lives, streak multipliers).
 Microstates are the reason most map games are annoying, so several things
 happen at once to make Nauru as easy to hit as Brazil:
 
-- Any country too small to click at the current zoom is drawn as a **pin**
-  with a soft halo, and the pin takes the hit instead of the country
-  underneath it — so Vatican City wins over Rome, and Lesotho over South
-  Africa.
-- A **magnifier** follows the pointer while you drag, showing the map under
-  your cursor at 3.4x with the current target ringed.
+- Any country too small to click at the current zoom is drawn as a **pin**,
+  and the pin takes the hit instead of the country underneath it — so Vatican
+  City wins over Rome, and Lesotho over South Africa. As you zoom in the pins
+  fade out gradually rather than blinking off, so a dot never disappears out
+  from under the cursor; the true specks keep a faint halo.
+- The dragged card **trails below and right of the pointer** instead of
+  sitting on top of it, so you can always see the spot you are aiming at.
+- A **magnifier** follows the pointer while you drag. It shows a fixed slice
+  of the world rather than a fixed multiple of the current zoom, so it never
+  becomes a featureless close-up, and it hides itself once you are zoomed in
+  far enough that it has nothing to add. Inside the lens the pins stay their
+  normal size while the map grows, which is what actually pulls a crowded
+  cluster like the Caribbean apart.
 - Drops **snap outwards**: landing in the sea a few pixels off a coast, or
   just outside a tiny border, still counts as aiming at that country.
 - Zoom with the wheel, pinch, `+`/`-`, double-click, or the buttons; pan by

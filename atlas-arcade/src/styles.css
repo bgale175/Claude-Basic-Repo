@@ -59,7 +59,7 @@ button { cursor: pointer; border: none; background: none; }
   cursor: grab;
 }
 #stage.is-panning { cursor: grabbing; }
-#stage.is-dragging { cursor: none; }
+#stage.is-dragging { cursor: crosshair; }
 
 #map { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 
@@ -115,6 +115,7 @@ button { cursor: pointer; border: none; background: none; }
   vector-effect: non-scaling-stroke;
   pointer-events: none;
   opacity: .85;
+  transition: opacity .18s linear;
 }
 .pin.done { fill: var(--good); opacity: .95; }
 .pin.hot { fill: #fff; r: calc(var(--pinr, 30px) * 1.7); }
@@ -124,6 +125,7 @@ button { cursor: pointer; border: none; background: none; }
   fill: var(--accent);
   opacity: .16;
   pointer-events: none;
+  transition: opacity .18s linear;
 }
 .pin-halo.hide { display: none; }
 
@@ -166,14 +168,13 @@ button { cursor: pointer; border: none; background: none; }
 
 #loupe {
   position: absolute;
-  width: 190px;
-  height: 190px;
-  margin: -95px 0 0 -95px;
+  width: 154px;
+  height: 154px;
   border-radius: 50%;
   overflow: hidden;
   pointer-events: none;
   z-index: 40;
-  border: 2px solid rgba(190, 225, 255, .55);
+  border: 1.5px solid rgba(190, 225, 255, .5);
   box-shadow: 0 14px 40px rgba(0, 0, 0, .6), inset 0 0 16px rgba(0, 0, 0, .28);
   background: #0c1c30;
 }
@@ -181,8 +182,8 @@ button { cursor: pointer; border: none; background: none; }
 #loupeCross {
   position: absolute;
   left: 50%; top: 50%;
-  width: 26px; height: 26px;
-  margin: -13px 0 0 -13px;
+  width: 20px; height: 20px;
+  margin: -10px 0 0 -10px;
   border-radius: 50%;
   border: 1.5px solid rgba(255, 255, 255, .55);
   box-shadow: 0 0 0 1px rgba(0, 0, 0, .4);
@@ -433,7 +434,7 @@ button { cursor: pointer; border: none; background: none; }
 .chip.queued { opacity: .74; transform: scale(.96); }
 .chip.queued:hover { opacity: 1; }
 
-#ghost .chip { transform: scale(1.06) rotate(-2deg); box-shadow: 0 22px 40px rgba(0, 0, 0, .6); }
+#ghost .chip { transform: scale(.95) rotate(-1.5deg); box-shadow: 0 18px 34px rgba(0, 0, 0, .55); }
 
 /* =============================================================== overlay */
 .overlay {
@@ -640,6 +641,8 @@ button { cursor: pointer; border: none; background: none; }
     gap: 8px;
   }
   .chip { width: 100%; }
+  /* Long names wrap in the rail rather than running off the card. */
+  .chip .cname { white-space: normal; }
   .chip.mode-flag { justify-content: center; }
   .chip.mode-flag img { width: 100%; max-width: 178px; height: auto; aspect-ratio: 4 / 3; }
   .chip:hover { transform: translateX(-3px); }
@@ -658,7 +661,7 @@ button { cursor: pointer; border: none; background: none; }
   #infoCard { width: min(300px, calc(100% - 28px)); }
   #hud { top: 8px; left: 8px; gap: 6px; }
   .hud-pill { font-size: 11px; padding: 5px 10px; }
-  #loupe { width: 150px; height: 150px; margin: -75px 0 0 -75px; }
+  #loupe { width: 132px; height: 132px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

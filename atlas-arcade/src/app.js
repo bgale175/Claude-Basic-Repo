@@ -44,15 +44,26 @@ const GAME_MODES = {
   survival: { icon: '❤️', title: 'Survival', desc: 'Three lives. One slip and the streak dies.' },
 };
 
-// Countries this small on screen (world units across) get a pin instead.
+// A country narrower than this on screen is stood in for by a pin. Past that
+// the pin fades out rather than blinking off, and is gone once the shape is
+// PIN_FADE_TO times big enough to aim at directly.
 const PIN_SHOW_PX = 26;
+const PIN_FADE_TO = 2.4;
 const PIN_R_PX = 4.5;
 const PIN_HIT_PX = 20;
 // Inside this radius a pin wins outright, even over the country it sits in.
 const PIN_LOCK_PX = 10;
 const PROBE_RADII = [9, 18, 29, 42];
 const TRAY_SIZE = 7;
-const LOUPE_MAG = 3.4;
+// The magnifier shows a fixed slice of the world rather than a fixed multiple
+// of the current zoom, so it never turns into a featureless close-up. Below
+// LOUPE_MIN_MAG there is nothing left to magnify and it hides itself.
+const LOUPE_MAX_MAG = 6;
+const LOUPE_MIN_SPAN = 620;
+const LOUPE_MIN_MAG = 1.3;
+// Gap between the pointer and the dragged card, so the card never covers the
+// spot you are aiming at.
+const GHOST_GAP = 16;
 // Countries near the western edge get a wrapped copy so the Pacific reads
 // as one region instead of being split down the antimeridian.
 const WRAP_MAX_X = 0.13 * W;
@@ -161,6 +172,7 @@ const scene = $('#scene');
 const fx = $('#fx');
 const loupe = $('#loupe');
 const loupeSvg = $('#loupeSvg');
+const loupeUse = loupeSvg.querySelector('use');
 const ghost = $('#ghost');
 const trayInner = $('#trayInner');
 
@@ -202,9 +214,9 @@ function buildMap() {
       c,
       lands: [], halos: [], pins: [], marks: [], labels: [],
       wrapped,
-      // Zoom level (px per world unit) above which the shape is big enough
-      // to click directly.
-      pinUntil: PIN_SHOW_PX / Math.max(Math.sqrt(c.a), 0.5),
+      // Characteristic width of the country in world units, which drives
+      // whether it needs a pin at the current zoom.
+      span: Math.max(Math.sqrt(c.a), 0.5),
       state: 'out',
     };
 
@@ -411,16 +423,39 @@ function applyView() {
 }
 
 /** Re-sizes everything that must stay a constant number of screen pixels. */
+/**
+ * How present a country's pin should be at the current zoom: 1 while the
+ * country is too small to aim at, tapering to 0 once the shape itself is a
+ * comfortable target. Fading rather than switching means zooming in never
+ * makes a dot vanish out from under the cursor.
+ */
+function pinFade(r) {
+  const t = (r.span * scale) / PIN_SHOW_PX;
+  if (t <= 1) return 1;
+  if (t >= PIN_FADE_TO) return 0;
+  return 1 - (t - 1) / (PIN_FADE_TO - 1);
+}
+
 function updateScaleBound() {
   const root = document.documentElement;
   root.style.setProperty('--pinr', `${PIN_R_PX / scale}px`);
   const inv = 1 / scale;
   const inMenu = app.classList.contains('is-menu');
   for (const r of rec.values()) {
-    const asPin = !inMenu && r.state !== 'out' && scale < r.pinUntil;
-    for (const n of r.pins) n.classList.toggle('hide', !asPin);
-    // A soft halo makes an unplaced speck findable at world zoom.
-    for (const n of r.halos) n.classList.toggle('hide', !asPin || r.state === 'done');
+    const fade = inMenu || r.state === 'out' ? 0 : pinFade(r);
+    const shown = fade > 0.02;
+    for (const n of r.pins) {
+      n.classList.toggle('hide', !shown);
+      if (shown) n.style.opacity = fade * (r.state === 'done' ? 0.95 : 0.85);
+    }
+    // A soft halo makes an unplaced speck findable, but only for the genuine
+    // specks - haloing every smallish country buries the map at world zoom.
+    const tiny = clamp((10 - r.span * scale) / 6, 0, 1);
+    const halo = shown && r.state !== 'done' && tiny > 0.02;
+    for (const n of r.halos) {
+      n.classList.toggle('hide', !halo);
+      if (halo) n.style.opacity = fade * tiny * 0.18;
+    }
     if (r.marks.length) layoutMarks(r, inv);
   }
 }
@@ -540,7 +575,7 @@ function resolveTarget(px, py) {
   let best = null;
   const pool = state.explore ? [...rec.values()] : state.remaining.map((id) => rec.get(id));
   for (const r of pool) {
-    if (!r || r.state === 'out' || scale >= r.pinUntil) continue;
+    if (!r || r.state === 'out' || pinFade(r) <= 0.02) continue;
     const dy = toScreenY(r.c.l[1]) - py;
     const consider = (dx) => {
       const d = Math.hypot(dx, dy);
@@ -597,7 +632,7 @@ function setHot(id) {
   if (!id) return;
   setLandClass(id, 'hot', true);
   const r = rec.get(id);
-  if (scale < r.pinUntil) {
+  if (pinFade(r) > 0.02) {
     ringNode = svgEl('circle', {
       cx: r.c.l[0], cy: r.c.l[1], r: 15 / scale, class: 'ring',
     });
@@ -608,15 +643,32 @@ function setHot(id) {
 // =================================================================== loupe
 
 function showLoupe(px, py) {
-  if (!opts.loupe) return;
-  const size = loupe.offsetWidth || 190;
-  const lw = size / scale / LOUPE_MAG;
+  if (!opts.loupe) { hideLoupe(); return; }
+  const size = loupe.offsetWidth || 154;
+
+  // Show a fixed slice of the world, capped so the magnifier never becomes a
+  // blurry close-up of one country's interior. When you are already zoomed in
+  // far enough that it would show nothing new, it gets out of the way.
+  const rawSpan = size / scale;
+  const span = Math.max(rawSpan / LOUPE_MAX_MAG, LOUPE_MIN_SPAN);
+  const mag = rawSpan / span;
+  if (mag < LOUPE_MIN_MAG) { hideLoupe(); return; }
+
   const cx = toWorldX(px);
   const cy = toWorldY(py);
-  loupeSvg.setAttribute('viewBox', `${cx - lw / 2} ${cy - lw / 2} ${lw} ${lw}`);
-  const above = py - rect.top > size * 0.9;
-  loupe.style.left = `${px - rect.left}px`;
-  loupe.style.top = `${py - rect.top + (above ? -size * 0.72 : size * 0.72)}px`;
+  loupeSvg.setAttribute('viewBox', `${cx - span / 2} ${cy - span / 2} ${span} ${span}`);
+  // Hold the pins at their normal on-screen size inside the lens. Magnifying
+  // them along with the map would keep a cluster exactly as crowded as before,
+  // which is the one thing the lens exists to fix.
+  loupeUse.style.setProperty('--pinr', `${PIN_R_PX / (scale * mag)}px`);
+
+  // Up and to the left of the pointer; the dragged card sits down and right.
+  let lx = px - rect.left - size - 14;
+  let ly = py - rect.top - size - 14;
+  if (lx < 8) lx = px - rect.left + 14;
+  if (ly < 8) ly = py - rect.top + 14;
+  loupe.style.left = `${clamp(lx, 8, rect.width - size - 8)}px`;
+  loupe.style.top = `${clamp(ly, 8, rect.height - size - 8)}px`;
   loupe.hidden = false;
 }
 const hideLoupe = () => { loupe.hidden = true; };
@@ -626,16 +678,7 @@ const hideLoupe = () => { loupe.hidden = true; };
 let drag = null;
 
 function beginDrag(id, chip, e) {
-  const box = chip.getBoundingClientRect();
-  drag = {
-    id,
-    chip,
-    pointerId: e.pointerId,
-    dx: e.clientX - (box.left + box.width / 2),
-    dy: e.clientY - (box.top + box.height / 2),
-    moved: false,
-    start: [e.clientX, e.clientY],
-  };
+  drag = { id, chip, pointerId: e.pointerId, moved: false, start: [e.clientX, e.clientY] };
   ghost.textContent = '';
   const clone = chip.cloneNode(true);
   clone.classList.remove('sel', 'queued');
@@ -646,9 +689,18 @@ function beginDrag(id, chip, e) {
   chip.setPointerCapture(e.pointerId);
 }
 
+/**
+ * The dragged card trails below and right of the pointer instead of sitting
+ * under it, so the crosshair and the spot you are aiming at stay visible.
+ */
 function moveGhost(px, py) {
-  ghost.style.transform =
-    `translate(${px - rect.left - drag.dx}px, ${py - rect.top - drag.dy}px) translate(-50%, -50%)`;
+  const gw = ghost.offsetWidth;
+  const gh = ghost.offsetHeight;
+  let x = px - rect.left + GHOST_GAP;
+  let y = py - rect.top + GHOST_GAP;
+  if (x + gw > rect.width - 8) x = px - rect.left - GHOST_GAP - gw;
+  if (y + gh > rect.height - 8) y = py - rect.top - GHOST_GAP - gh;
+  ghost.style.transform = `translate(${clamp(x, 8, Math.max(8, rect.width - gw - 8))}px, ${clamp(y, 8, Math.max(8, rect.height - gh - 8))}px)`;
 }
 
 function onDragMove(e) {
@@ -787,6 +839,21 @@ function startGame(customPool) {
   renderTray();
   updateHud();
   tickLoop();
+  explainPins();
+}
+
+// The dots are the one part of the map that isn't self-explanatory, so say
+// what they are the first time a round actually has some.
+let pinsExplained = false;
+function explainPins() {
+  if (pinsExplained) return;
+  if (state.remaining.filter((id) => pinFade(rec.get(id)) > 0.9).length < 3) return;
+  pinsExplained = true;
+  setTimeout(() => {
+    if (state.playing) {
+      toast('Dots stand in for countries too small to click — drop right on the dot. They fade away as you zoom in.', '');
+    }
+  }, 700);
 }
 
 function submit(chipId, targetId, px, py) {
