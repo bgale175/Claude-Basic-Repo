@@ -439,9 +439,21 @@ const out = template
 const dest = path.join(ROOT, 'index.html');
 fs.writeFileSync(dest, out);
 
+
 const kb = (n) => `${(n / 1024).toFixed(0)} kB`;
 if (wrapCuts.length) console.log(`antimeridian cuts: ${wrapCuts.join(', ')}`);
 console.log(`countries: ${stats.countries}  territories: ${stats.territories}  vertices: ${stats.points}`);
 console.log(`geometry:  ${kb(JSON.stringify(geoData).length)}`);
 console.log(`flags:     ${kb(JSON.stringify(flags).length)} (${Object.keys(flags).length})`);
 console.log(`wrote ${path.relative(process.cwd(), dest)}  ${kb(out.length)}`);
+
+// `--artifact <path>` also writes a fragment with no document wrapper, for
+// hosts that supply their own <head> and <body>. Not committed.
+const artifactFlag = process.argv.indexOf('--artifact');
+if (artifactFlag !== -1 && process.argv[artifactFlag + 1]) {
+  const style = out.slice(out.indexOf('<style>'), out.indexOf('</style>') + 8);
+  const body = out.slice(out.indexOf('<body>') + 6, out.lastIndexOf('</body>'));
+  const target = process.argv[artifactFlag + 1];
+  fs.writeFileSync(target, `${style}\n${body.trim()}\n`);
+  console.log(`wrote ${target}  ${kb(style.length + body.length)}`);
+}
