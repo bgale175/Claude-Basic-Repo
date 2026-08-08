@@ -1,0 +1,17 @@
+{
+  "name": "atlas-arcade-build",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "devDependencies": {
+    "flag-icons": "^7.5.0",
+    "world-atlas": "^2.0.2",
+    "world-countries": "^5.1.0"
+  },
+  "dependencies": {
+    "countries-list": "^3.4.1",
+    "country-json": "^1.1.6"
+  }
+}

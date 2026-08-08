@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
+<meta name="color-scheme" content="dark">
+<title>Atlas Arcade — learn where every country is</title>
+<meta name="description" content="Drag flags and country names onto the world map. Every country, every continent, every flag.">
+<style>/*__CSS__*/</style>
+</head>
+<body>
+
+<div id="app" class="is-menu">
+
+  <!-- ------------------------------------------------------------- bar -->
+  <header id="topbar">
+    <button id="btnMenu" class="tb-btn" title="Back to menu (Esc)">
+      <span class="tb-ico">◀</span><span class="tb-label">Menu</span>
+    </button>
+    <div class="tb-title"><b>Atlas</b> Arcade</div>
+    <div class="tb-spacer"></div>
+    <div id="searchWrap" hidden>
+      <input id="search" type="search" placeholder="Find a country…" autocomplete="off" spellcheck="false">
+      <div id="searchResults"></div>
+    </div>
+    <button id="btnHint" class="tb-btn" title="Hint (H)"><span class="tb-ico">💡</span><span class="tb-label">Hint</span></button>
+    <button id="btnSkip" class="tb-btn" title="Skip this one (S)"><span class="tb-ico">⤼</span><span class="tb-label">Skip</span></button>
+    <button id="btnSound" class="tb-btn" title="Sound (M)"><span class="tb-ico">🔊</span></button>
+    <button id="btnLoupe" class="tb-btn is-on" title="Magnifier (L)"><span class="tb-ico">🔍</span></button>
+  </header>
+
+  <!-- ------------------------------------------------------------- map -->
+  <div id="stage">
+    <svg id="map" aria-label="World map"><g id="scene"></g></svg>
+    <canvas id="fx"></canvas>
+    <div id="loupe" hidden><svg id="loupeSvg"><use href="#scene"></use></svg><div id="loupeCross"></div></div>
+    <div id="ghost" hidden></div>
+
+    <div id="zoomPad">
+      <button class="zbtn" data-zoom="in" title="Zoom in (+)">+</button>
+      <button class="zbtn" data-zoom="out" title="Zoom out (−)">−</button>
+      <button class="zbtn" data-zoom="fit" title="Reset view (0)">⤢</button>
+    </div>
+
+    <div id="hud">
+      <div class="hud-pill" id="hudRegion"></div>
+      <div class="hud-pill" id="hudProgress"></div>
+      <div class="hud-pill hud-score" id="hudScore"></div>
+      <div class="hud-pill hud-timer" id="hudTimer" hidden></div>
+      <div class="hud-pill hud-lives" id="hudLives" hidden></div>
+    </div>
+
+    <div id="streakBadge" hidden></div>
+    <div id="toast" hidden></div>
+
+    <div id="infoCard" hidden></div>
+  </div>
+
+  <!-- ------------------------------------------------------------ tray -->
+  <footer id="tray">
+    <div id="trayInner"></div>
+    <div id="trayHint">Drag onto the map · or tap a card then tap the map</div>
+  </footer>
+
+  <!-- ------------------------------------------------------------ menu -->
+  <div id="menu" class="overlay">
+    <div class="sheet">
+      <div class="brand">
+        <div class="brand-mark">🌍</div>
+        <div>
+          <h1><b>Atlas</b> Arcade</h1>
+          <p class="tagline">Learn where all <b id="totalCount">197</b> countries are — by dragging their flags home.</p>
+        </div>
+      </div>
+
+      <section class="block">
+        <h2>1 · Pick your patch of the planet</h2>
+        <div id="regionGrid" class="region-grid"></div>
+      </section>
+
+      <section class="block">
+        <h2>2 · What do you want to drag?</h2>
+        <div id="chipModes" class="opt-row"></div>
+      </section>
+
+      <section class="block">
+        <h2>3 · How do you want to play?</h2>
+        <div id="gameModes" class="opt-row"></div>
+      </section>
+
+      <section class="block block--tight">
+        <h2>Extras</h2>
+        <div id="toggles" class="toggle-row"></div>
+      </section>
+
+      <div class="start-row">
+        <button id="btnStart" class="start">Start<span class="start-sub" id="startSub"></span></button>
+        <button id="btnExplore" class="ghost-btn">🧭 Explore the map</button>
+        <button id="btnReset" class="ghost-btn subtle">Reset progress</button>
+      </div>
+      <p class="keys">
+        <b>Scroll</b> zoom · <b>Drag</b> pan · <b>H</b> hint · <b>S</b> skip ·
+        <b>L</b> magnifier · <b>M</b> mute · <b>0</b> reset view · <b>Esc</b> menu
+      </p>
+      <p class="credit">Boundaries: Natural Earth 1:50m · Flags: flag-icons · Facts: world-countries</p>
+    </div>
+  </div>
+
+  <!-- --------------------------------------------------------- results -->
+  <div id="results" class="overlay" hidden>
+    <div class="sheet sheet--results">
+      <div id="resultHead"></div>
+      <div id="resultStats" class="stat-row"></div>
+      <div id="resultMisses"></div>
+      <div class="start-row">
+        <button id="btnAgain" class="start">Play again</button>
+        <button id="btnDrill" class="ghost-btn" hidden>Drill my misses</button>
+        <button id="btnBackMenu" class="ghost-btn">Menu</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="pauseVeil" hidden><div>Paused<small>click to resume</small></div></div>
+</div>
+
+<script>/*__GEO__*/</script>
+<script>/*__FLAGS__*/</script>
+<script>/*__APP__*/</script>
+</body>
+</html>
