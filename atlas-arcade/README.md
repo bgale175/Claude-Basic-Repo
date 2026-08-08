@@ -50,7 +50,9 @@ happen at once to make Nauru as easy to hit as Brazil:
 - Zoom with the wheel, pinch, `+`/`-`, double-click, or the buttons; pan by
   dragging. `0` re-frames the region.
 
-If dragging isn't your thing, tap a card and then tap the map.
+If dragging isn't your thing, tap a card and then tap the map — and once
+you've placed one this way the next card selects itself, so you can rattle
+through a continent by just tapping the map over and over.
 
 ## The other bits
 

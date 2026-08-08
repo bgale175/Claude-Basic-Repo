@@ -758,7 +758,7 @@ function onStageTap(px, py) {
     return;
   }
   if (!state.playing || !state.selected) return;
-  submit(state.selected, target, px, py);
+  submit(state.selected, target, px, py, true);
 }
 
 // ================================================================ the game
@@ -856,7 +856,7 @@ function explainPins() {
   }, 700);
 }
 
-function submit(chipId, targetId, px, py) {
+function submit(chipId, targetId, px, py, fromTap) {
   if (!state.playing || state.paused) return;
   if (!targetId) {
     toast('Aim a little closer to a country', 'bad');
@@ -868,7 +868,7 @@ function submit(chipId, targetId, px, py) {
   state.placedAt = now;
 
   if (targetId === chipId) {
-    onCorrect(chipId, seconds, px, py);
+    onCorrect(chipId, seconds, px, py, fromTap);
   } else {
     onWrong(chipId, targetId, px, py);
   }
@@ -876,7 +876,7 @@ function submit(chipId, targetId, px, py) {
   if (!state.remaining.length) finish('cleared');
 }
 
-function onCorrect(id, seconds, px, py) {
+function onCorrect(id, seconds, px, py, fromTap) {
   const c = BY_ID.get(id);
   state.hits++;
   state.streak++;
@@ -910,7 +910,13 @@ function onCorrect(id, seconds, px, py) {
     chip.classList.add('gone');
     setTimeout(renderTray, 240);
   } else renderTray();
-  if (state.selected === id) state.selected = null;
+  // In tap-to-place, hand the player straight to the next card so they can
+  // keep tapping the map without going back to the deck each time.
+  if (fromTap && state.remaining.length) {
+    selectChip(state.remaining[0]);
+  } else if (state.selected === id) {
+    state.selected = null;
+  }
   state.hintLevel = 0;
   state.hintFor = null;
 }
