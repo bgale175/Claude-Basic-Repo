@@ -21,7 +21,7 @@ const fmt = new Intl.NumberFormat('en-US');
 
 const W = GEO.w;
 const H = GEO.h;
-const BY_ID = new Map(GEO.countries.map((c) => [c.id, c]));
+const BY_ID = new Map([...GEO.countries, ...GEO.states.features].map((c) => [c.id, c]));
 
 const CONTINENTS = {
   AF: { name: 'Africa', icon: '🦁', hue: '#f7b267' },
@@ -31,6 +31,10 @@ const CONTINENTS = {
   SA: { name: 'South America', icon: '🦜', hue: '#c792ea' },
   OC: { name: 'Oceania', icon: '🐚', hue: '#46cfe0' },
 };
+
+// Accent hue for a feature, used for sparkles and the plain (no-flag) fill.
+// US states aren't in CONTINENTS, so they fall back to a patriotic blue.
+const hueOf = (c) => (CONTINENTS[c.c] || {}).hue || '#6c8cff';
 
 const CHIP_MODES = {
   flag: { icon: '🏳️', title: 'Flags only', desc: 'Drag the flag onto its country. Hardest, and the best test.' },
@@ -184,61 +188,78 @@ const rec = new Map();
 
 // ================================================================= drawing
 
-// Each interactive layer exists twice: once on the primary map and once on a
-// copy shifted a world-width east, so the Pacific can be played as one piece.
+// The world lives in #worldScene, the US states in #statesScene, and the app
+// shows one or the other. Both are laid out in the same coordinate box, so
+// zoom, pins, the magnifier and flag-fill are identical machinery either way.
+// The world's interactive layers also exist a second time, a world-width east,
+// so the Pacific can be played as one piece.
 const layer = {};
 const wrapGroups = {};
+const slayer = {};
 
 function buildMap() {
-  // Both oceans, then the seam patch, must sit below every other layer.
-  const oceanA = svgEl('path', { class: 'ocean', d: GEO.outline });
-  const oceanB = svgEl('path', { class: 'ocean', d: GEO.outline, transform: `translate(${W},0)` });
-  const seam = svgEl('path', { class: 'seam', d: GEO.seam });
-  scene.append(oceanA, oceanB, seam);
-
+  const worldScene = svgEl('g', { id: 'worldScene' });
+  worldScene.append(
+    svgEl('path', { class: 'ocean', d: GEO.outline }),
+    svgEl('path', { class: 'ocean', d: GEO.outline, transform: `translate(${W},0)` }),
+    svgEl('path', { class: 'seam', d: GEO.seam }),
+  );
   for (const [cls, d] of [['graticule', GEO.graticule], ['antarctica', GEO.antarctica]]) {
-    scene.appendChild(svgEl('path', { class: cls, d }));
-    scene.appendChild(svgEl('path', { class: cls, d, transform: `translate(${W},0)` }));
+    worldScene.append(
+      svgEl('path', { class: cls, d }),
+      svgEl('path', { class: cls, d, transform: `translate(${W},0)` }),
+    );
   }
-
   for (const name of ['lands', 'pins', 'marks', 'labels']) {
-    layer[name] = svgEl('g', { id: name });
+    layer[name] = svgEl('g');
     wrapGroups[name] = svgEl('g', { transform: `translate(${W},0)` });
-    scene.appendChild(layer[name]);
-    scene.appendChild(wrapGroups[name]);
+    worldScene.append(layer[name], wrapGroups[name]);
   }
+  scene.appendChild(worldScene);
+  for (const c of GEO.countries) addFeature(c, layer, true);
 
-  for (const c of GEO.countries) {
-    const wrapped = c.b[0] < WRAP_MAX_X && c.a < WRAP_MAX_AREA;
-    const r = {
-      c,
-      lands: [], halos: [], pins: [], marks: [], labels: [],
-      wrapped,
-      // Characteristic width of the country in world units, which drives
-      // whether it needs a pin at the current zoom.
-      span: Math.max(Math.sqrt(c.a), 0.5),
-      state: 'out',
-    };
-
-    const path = svgEl('path', { d: c.d, class: 'land out' });
-    path.dataset.id = c.id;
-    layer.lands.appendChild(path);
-    r.lands.push(path);
-
-    addPin(r, layer.pins);
-
-    if (wrapped) {
-      const alt = path.cloneNode(false);
-      wrapGroups.lands.appendChild(alt);
-      r.lands.push(alt);
-      addPin(r, wrapGroups.pins);
-    }
-    rec.set(c.id, r);
+  const statesScene = svgEl('g', { id: 'statesScene' });
+  statesScene.appendChild(svgEl('path', { class: 'usbase', d: GEO.states.base }));
+  for (const name of ['lands', 'pins', 'marks', 'labels']) {
+    slayer[name] = svgEl('g');
+    statesScene.appendChild(slayer[name]);
   }
+  scene.appendChild(statesScene);
+  for (const c of GEO.states.features) addFeature(c, slayer, false);
+}
+
+/** Creates every DOM node for one feature and registers it in `rec`. */
+function addFeature(c, groups, allowWrap) {
+  const wrapped = allowWrap && c.b[0] < WRAP_MAX_X && c.a < WRAP_MAX_AREA;
+  const r = {
+    c,
+    lands: [], halos: [], pins: [], marks: [], labels: [],
+    wrapped,
+    marksGroup: groups.marks,
+    labelsGroup: groups.labels,
+    // Characteristic width in world units, which drives whether it needs a pin.
+    span: Math.max(Math.sqrt(c.a), 0.5),
+    state: 'out',
+  };
+
+  const path = svgEl('path', { d: c.d, class: 'land out' });
+  path.dataset.id = c.id;
+  groups.lands.appendChild(path);
+  r.lands.push(path);
+  addPin(r, groups.pins);
+
+  if (wrapped) {
+    const alt = path.cloneNode(false);
+    wrapGroups.lands.appendChild(alt);
+    r.lands.push(alt);
+    addPin(r, wrapGroups.pins);
+  }
+  rec.set(c.id, r);
 }
 
 function clearMarks() {
-  for (const g of [layer.marks, layer.labels, wrapGroups.marks, wrapGroups.labels]) g.textContent = '';
+  for (const g of [layer.marks, layer.labels, wrapGroups.marks, wrapGroups.labels,
+    slayer.marks, slayer.labels]) g.textContent = '';
   for (const r of rec.values()) { r.marks.length = 0; r.labels.length = 0; }
   ringNode = null;
   hotId = null;
@@ -307,17 +328,17 @@ function setCountryState(id, next, withMark = true) {
     for (const n of r.lands) {
       n.classList.add('done');
       if (opts.flagFill) n.style.fill = patternFor(id);
-      else { n.classList.add('plain'); n.style.setProperty('--cc', CONTINENTS[r.c.c].hue); }
+      else { n.classList.add('plain'); n.style.setProperty('--cc', hueOf(r.c)); }
     }
     for (const n of r.pins) n.classList.add('done');
     if (withMark) addMark(r);
   }
 }
 
-/** Flag badge + name label pinned at the country's anchor point. */
+/** Flag badge + name label pinned at the feature's anchor point. */
 function addMark(r) {
   if (r.marks.length) return;
-  const targets = [{ marks: layer.marks, labels: layer.labels }];
+  const targets = [{ marks: r.marksGroup, labels: r.labelsGroup }];
   if (r.wrapped) targets.push(wrapGroups);
 
   for (const t of targets) {
@@ -636,7 +657,7 @@ function setHot(id) {
     ringNode = svgEl('circle', {
       cx: r.c.l[0], cy: r.c.l[1], r: 15 / scale, class: 'ring',
     });
-    layer.marks.appendChild(ringNode);
+    r.marksGroup.appendChild(ringNode);
   }
 }
 
@@ -764,6 +785,9 @@ function onStageTap(px, py) {
 // ================================================================ the game
 
 function poolFor(region) {
+  if (region === 'USA') {
+    return GEO.states.features.filter((c) => opts.territories || !c.t).map((c) => c.id);
+  }
   const all = GEO.countries.filter((c) => opts.territories || !c.t);
   if (region === 'WORLD') return all.map((c) => c.id);
   if (region === 'TINY') {
@@ -784,6 +808,11 @@ function weakness(id) {
   return p.w * 2 - p.b;
 }
 
+const isStatesRegion = (region) => region === 'USA';
+const fitBoxFor = (region) => (isStatesRegion(region) ? GEO.states.fit : (GEO.fits[region] || GEO.fits.WORLD));
+// Shows the US states in place of the world.
+const setStatesMode = (on) => app.classList.toggle('states', on);
+
 function shuffle(arr) {
   const a = arr.slice();
   for (let i = a.length - 1; i > 0; i--) {
@@ -799,6 +828,7 @@ function startGame(customPool) {
   state.paused = false;
   state.pool = customPool || poolFor(state.region);
   if (!state.pool.length) return;
+  setStatesMode(isStatesRegion(state.region));
   // Weakest first when drilling; otherwise mix it up.
   state.remaining = state.region === 'TROUBLE' && !customPool
     ? state.pool.slice()
@@ -833,7 +863,7 @@ function startGame(customPool) {
   $('#btnHint').disabled = false;
   $('#btnSkip').disabled = false;
 
-  fitBox = GEO.fits[state.region] || GEO.fits.WORLD;
+  fitBox = fitBoxFor(state.region);
   measure();
   fitTo(fitBox, false);
   renderTray();
@@ -849,9 +879,10 @@ function explainPins() {
   if (pinsExplained) return;
   if (state.remaining.filter((id) => pinFade(rec.get(id)) > 0.9).length < 3) return;
   pinsExplained = true;
+  const noun = isStatesRegion(state.region) ? 'states' : 'countries';
   setTimeout(() => {
     if (state.playing) {
-      toast('Dots stand in for countries too small to click — drop right on the dot. They fade away as you zoom in.', '');
+      toast(`Dots stand in for ${noun} too small to click — drop right on the dot. They fade away as you zoom in.`, '');
     }
   }, 700);
 }
@@ -898,7 +929,7 @@ function onCorrect(id, seconds, px, py, fromTap) {
 
   setCountryState(id, 'done');
   updateScaleBound();
-  sparkle(px, py, CONTINENTS[c.c].hue);
+  sparkle(px, py, hueOf(c));
   sfx('good');
   toast(`<img src="${flagURL(id)}" alt=""> <b>${c.n}</b> — nailed it`, 'good');
   if (state.streak >= 3 && state.streak % 3 === 0) {
@@ -965,7 +996,7 @@ function pulseAt(id, radiusPx) {
     r: (radiusPx || 46) / scale,
     class: 'ring pulse',
   });
-  layer.marks.appendChild(ring);
+  r.marksGroup.appendChild(ring);
   setTimeout(() => ring.remove(), 1100);
 }
 
@@ -1019,9 +1050,12 @@ function finish(reason) {
 
   if (cleared) { confetti(); sfx('win'); }
 
+  const clearedTitle = isStatesRegion(state.region) ? '🎉 Every state placed!'
+    : state.region in CONTINENTS ? '🎉 Continent cleared!'
+      : '🎉 Cleared!';
   const head = $('#resultHead');
   head.innerHTML = `
-    <div class="rtitle">${cleared ? '🎉 Continent cleared!' : reason === 'time' ? "⏱ Time's up" : '💔 Out of lives'}</div>
+    <div class="rtitle">${cleared ? clearedTitle : reason === 'time' ? "⏱ Time's up" : '💔 Out of lives'}</div>
     <div class="rsub">${regionLabel(state.region)} · ${CHIP_MODES[state.chipMode].title} · ${GAME_MODES[state.gameMode].title}</div>
     ${newBest ? '<div class="newbest">★ NEW PERSONAL BEST</div>' : ''}`;
 
@@ -1097,15 +1131,21 @@ function selectChip(id) {
 
 function regionLabel(region) {
   if (region === 'WORLD') return 'The whole world';
+  if (region === 'USA') return 'US states';
   if (region === 'TINY') return 'Tiny nations';
   if (region === 'TROUBLE') return 'Trouble spots';
   return CONTINENTS[region] ? CONTINENTS[region].name : region;
 }
 
+function regionIcon(region) {
+  if (region in CONTINENTS) return CONTINENTS[region].icon;
+  return { USA: '🇺🇸', TINY: '🔬', TROUBLE: '🎯' }[region] || '🌍';
+}
+
 function updateHud() {
   const done = state.solved.size;
   const total = state.pool.length;
-  $('#hudRegion').innerHTML = `${state.region in CONTINENTS ? CONTINENTS[state.region].icon : '🌍'} <b>${regionLabel(state.region)}</b>`;
+  $('#hudRegion').innerHTML = `${regionIcon(state.region)} <b>${regionLabel(state.region)}</b>`;
   $('#hudProgress').innerHTML = `<b>${done}</b> / ${total}`;
   $('#hudScore').innerHTML = `Score <b>${fmt.format(state.score)}</b>${state.streak > 1 ? ` · 🔥${state.streak}` : ''}`;
   const timer = $('#hudTimer');
@@ -1259,6 +1299,7 @@ function startExplore() {
   state.explore = true;
   state.pool = GEO.countries.filter((c) => opts.territories || !c.t).map((c) => c.id);
   clearMarks();
+  setStatesMode(false);
   const poolSet = new Set(state.pool);
   for (const id of rec.keys()) {
     setCountryState(id, poolSet.has(id) ? (isMastered(id) ? 'done' : 'todo') : 'out', false);
@@ -1342,19 +1383,24 @@ function openMenu() {
   $('#results').hidden = true;
   $('#infoCard').hidden = true;
   $('#toast').hidden = true;
+  paintMenuBackdrop();
+  renderMenu();
+  measure();
+  fitTo(fitBox, true);
+}
 
-  // The map behind the menu doubles as a trophy cabinet: everything you have
-  // mastered is already flying its flag.
+// The map behind the menu doubles as a trophy cabinet: everything you have
+// mastered is already flying its flag. It previews whichever universe the
+// selected region belongs to, so choosing "US States" shows the US filling in.
+function paintMenuBackdrop() {
+  const states = isStatesRegion(state.region);
+  setStatesMode(states);
   clearMarks();
-  for (const c of GEO.countries) {
+  for (const c of (states ? GEO.states.features : GEO.countries)) {
     if (c.t && !opts.territories) setCountryState(c.id, 'out');
     else setCountryState(c.id, isMastered(c.id) ? 'done' : 'todo', false);
   }
-
-  renderMenu();
-  fitBox = GEO.fits.WORLD;
-  measure();
-  fitTo(fitBox, true);
+  fitBox = states ? GEO.states.fit : GEO.fits.WORLD;
 }
 
 function renderMenu() {
@@ -1363,6 +1409,7 @@ function renderMenu() {
   const regions = [
     ['WORLD', '🌍', 'The whole world', '#4fd1c5'],
     ...Object.entries(CONTINENTS).map(([k, v]) => [k, v.icon, v.name, v.hue]),
+    ['USA', '🇺🇸', 'US states', '#6c8cff'],
     ['TINY', '🔬', 'Tiny nations', '#ffd166'],
     ['TROUBLE', '🎯', 'Trouble spots', '#ff6b7a'],
   ];
@@ -1375,11 +1422,12 @@ function renderMenu() {
     const boxes = ids.reduce((sum, id) => sum + Math.min(store.prog[id]?.b || 0, MASTER_BOX), 0);
     const pct = ids.length ? Math.round((boxes / (ids.length * MASTER_BOX)) * 100) : 0;
     const empty = key === 'TROUBLE' ? 'Nothing to fix — nice' : 'Play a round first';
+    const noun = key === 'USA' ? 'states' : 'places';
     card.innerHTML = `
       <div class="rname">${icon} ${name}</div>
-      <div class="rmeta">${ids.length ? `${ids.length} places · ${pct}% learned` : empty}</div>
+      <div class="rmeta">${ids.length ? `${ids.length} ${noun} · ${pct}% learned` : empty}</div>
       <div class="rbar"><i style="width:${pct}%"></i></div>`;
-    card.onclick = () => { state.region = key; renderMenu(); };
+    card.onclick = () => { state.region = key; renderMenu(); paintMenuBackdrop(); fitTo(fitBox, true); };
     grid.appendChild(card);
   }
 
@@ -1412,7 +1460,7 @@ function renderMenu() {
   const key = `${state.region}|${state.gameMode}|${state.chipMode}`;
   const best = store.best[key];
   $('#startSub').textContent =
-    `${ids.length} countries${best ? ` · best ${fmt.format(best)}` : ''}`;
+    `${ids.length} ${isStatesRegion(state.region) ? 'states' : 'countries'}${best ? ` · best ${fmt.format(best)}` : ''}`;
   $('#btnStart').disabled = !ids.length;
   $('#totalCount').textContent = GEO.countries.filter((c) => !c.t).length;
 }

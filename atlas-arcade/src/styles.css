@@ -86,6 +86,18 @@ button { cursor: pointer; border: none; background: none; }
 }
 .antarctica { fill: #16283c; stroke: rgba(150, 200, 240, .12); stroke-width: 1px; vector-effect: non-scaling-stroke; }
 
+/* World vs. US-states map: the app shows one #...Scene at a time. */
+#statesScene { display: none; }
+#app.states #worldScene { display: none; }
+#app.states #statesScene { display: block; }
+.usbase {
+  fill: #13233a;
+  stroke: rgba(150, 200, 240, .1);
+  stroke-width: 1px;
+  vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 0 46px rgba(40, 100, 150, .45));
+}
+
 /* --- country shapes --- */
 .land {
   fill: #24384f;

@@ -13,8 +13,16 @@ file, no server, no network, no build step needed to play.
 ## What's in it
 
 **Pick your region** — the whole world (197 countries), any of the six
-continents, *Tiny nations* (the 45 easiest to miss), or *Trouble spots*, which
-is assembled from the countries you personally keep getting wrong.
+continents, *US states* (all 50, with their flags), *Tiny nations* (the 45
+easiest to miss), or *Trouble spots*, which is assembled from the countries you
+personally keep getting wrong.
+
+![every US state, filled with its flag](docs/states-mastery.png)
+
+The **US states** mode works exactly like the world game — drag a state's flag
+(or its name, or both) onto the map, small states get pins, solved states fill
+in with their flag — but on an Albers USA map that keeps Alaska and Hawaii
+readable. Progress and personal bests are tracked separately from the world.
 
 **Pick what you drag**
 
@@ -114,16 +122,25 @@ A few things the build has to handle:
   their first.
 - **Tuvalu** is absent from Natural Earth 1:50m, so it is synthesised at its
   coordinates. It renders as a pin regardless, like the other atolls.
+- **US states** come from us-atlas's Albers USA composite (already projected,
+  with Alaska and Hawaii as insets). Rather than run a second projection at
+  runtime, the build scales and offsets that composite into the very same
+  coordinate box as the world, so the engine treats a state exactly like a
+  country. The app just swaps which layer is visible. State ids are namespaced
+  `US-CA`, `US-TX`, … so California never collides with Canada.
 
 ## Data
 
 | | |
 | --- | --- |
 | Boundaries | [Natural Earth](https://www.naturalearthdata.com/) 1:50m via [world-atlas](https://github.com/topojson/world-atlas) |
+| US state boundaries | [us-atlas](https://github.com/topojson/us-atlas) (Albers USA composite) |
 | Flags | [flag-icons](https://github.com/lipis/flag-icons) (CC0) |
+| US state flags | [us-state-flags](https://www.npmjs.com/package/us-state-flags) |
 | Names, capitals, regions, neighbours | [world-countries](https://github.com/mledoze/countries) (ODbL) |
 | Population | [country-json](https://github.com/samayo/country-json) |
 
 The default roster is 197: the 193 UN members, the two observer states
 (Vatican City and Palestine), plus Taiwan and Kosovo. A settings toggle adds
-36 territories and dependencies for a harder round.
+36 territories and dependencies for a harder round. US states mode has the 50
+states by default; the same toggle adds the District of Columbia.

@@ -144,11 +144,18 @@ function readFlag(code) {
 const arcs = decodeArcs(topology);
 const shapes = new Map(); // cca2 -> { rings, bbox, label, projArea }
 
-/** @param polygons array of [outerRing, ...holes] in lon/lat. */
-function buildShape(polygons) {
-  // Project every ring, then keep only the meaningful ones.
+/**
+ * @param polygons array of [outerRing, ...holes]
+ * @param opts.project  map each [a,b] through the Robinson projector (default
+ *   true for lon/lat country data; false for the already-projected Albers
+ *   state data)
+ * @param opts.tolerance / opts.speck / opts.gate  simplification and
+ *   speck-pruning thresholds in the output coordinate space
+ */
+function buildShape(polygons, opts = {}) {
+  const { project: doProject = true, tolerance = TOLERANCE, speck = 4, gate = 500 } = opts;
   const projected = polygons.map((poly) =>
-    poly.map((ring) => ring.map(([lon, lat]) => project(lon, lat))));
+    poly.map((ring) => (doProject ? ring.map(([lon, lat]) => project(lon, lat)) : ring.map(([x, y]) => [x, y]))));
 
   // Score a polygon by its largest ring, not by ring 0: Natural Earth stores
   // Antarctica as a degenerate strip along -90 with the real coastline as the
@@ -166,14 +173,14 @@ function buildShape(polygons) {
   const total = scored.reduce((sum, s) => sum + s.area, 0);
   // Tiny specks are visual noise, but atoll nations are made entirely of
   // specks - only prune when the country is large enough to spare them.
-  const minArea = total > 500 ? 4 : 0;
+  const minArea = total > gate ? speck : 0;
   let kept = scored.filter((s) => s.area >= minArea);
   if (!kept.length) kept = [scored.sort((a, b) => b.area - a.area)[0]];
 
   const rings = [];
   for (const { poly } of kept) {
     for (const ring of poly) {
-      const s = simplify(ring, TOLERANCE);
+      const s = simplify(ring, tolerance);
       if (s.length >= 4) rings.push(s);
     }
   }
@@ -194,8 +201,9 @@ function buildShape(polygons) {
 
   // Anchor the label inside the largest landmass.
   const biggest = kept.slice().sort((a, b) => b.area - a.area)[0].poly;
-  const coarse = biggest.map((r) => simplify(r, 30)).filter((r) => r.length >= 4);
-  const label = polylabel(coarse.length ? coarse : biggest, 4);
+  const coarseTol = doProject ? 30 : tolerance * 4;
+  const coarse = biggest.map((r) => simplify(r, coarseTol)).filter((r) => r.length >= 4);
+  const label = polylabel(coarse.length ? coarse : biggest, doProject ? 4 : 0.5);
 
   // Bounds of just that landmass. The full bbox is useless for the flag fill
   // of a country split at the antimeridian - Fiji's spans the entire map.
@@ -404,10 +412,185 @@ for (const [key, [lon0, lat0, lon1, lat1]] of Object.entries(REGION_WINDOWS)) {
   ];
 }
 
+// ------------------------------------------------------- US states mode ----
+
+// The 50 states + DC, drawn from us-atlas's Albers USA composite (which packs
+// Alaska and Hawaii into insets so every state stays readable) and paired with
+// the traced flags from us-state-flags. They are scaled and offset into the
+// same coordinate box as the world so the whole game engine — pins, magnifier,
+// flag-fill, zoom — works on them unchanged; the app just shows the states
+// layer instead of the world when this mode is on.
+const FIPS_TO_USPS = {
+  '01': 'AL', '02': 'AK', '04': 'AZ', '05': 'AR', '06': 'CA', '08': 'CO', '09': 'CT', 10: 'DE',
+  11: 'DC', 12: 'FL', 13: 'GA', 15: 'HI', 16: 'ID', 17: 'IL', 18: 'IN', 19: 'IA', 20: 'KS',
+  21: 'KY', 22: 'LA', 23: 'ME', 24: 'MD', 25: 'MA', 26: 'MI', 27: 'MN', 28: 'MS', 29: 'MO',
+  30: 'MT', 31: 'NE', 32: 'NV', 33: 'NH', 34: 'NJ', 35: 'NM', 36: 'NY', 37: 'NC', 38: 'ND',
+  39: 'OH', 40: 'OK', 41: 'OR', 42: 'PA', 44: 'RI', 45: 'SC', 46: 'SD', 47: 'TN', 48: 'TX',
+  49: 'UT', 50: 'VT', 51: 'VA', 53: 'WA', 54: 'WV', 55: 'WI', 56: 'WY',
+};
+
+function buildStates() {
+  const topo = req('us-atlas/states-albers-10m.json');
+  const stArcs = decodeArcs(topo);
+
+  // Census divisions, keyed by USPS code — the state equivalent of a subregion.
+  const DIVISION = {
+    CT: 'New England', ME: 'New England', MA: 'New England', NH: 'New England', RI: 'New England', VT: 'New England',
+    NJ: 'Mid-Atlantic', NY: 'Mid-Atlantic', PA: 'Mid-Atlantic',
+    IL: 'East North Central', IN: 'East North Central', MI: 'East North Central', OH: 'East North Central', WI: 'East North Central',
+    IA: 'West North Central', KS: 'West North Central', MN: 'West North Central', MO: 'West North Central', NE: 'West North Central', ND: 'West North Central', SD: 'West North Central',
+    DE: 'South Atlantic', FL: 'South Atlantic', GA: 'South Atlantic', MD: 'South Atlantic', NC: 'South Atlantic', SC: 'South Atlantic', VA: 'South Atlantic', WV: 'South Atlantic', DC: 'South Atlantic',
+    AL: 'East South Central', KY: 'East South Central', MS: 'East South Central', TN: 'East South Central',
+    AR: 'West South Central', LA: 'West South Central', OK: 'West South Central', TX: 'West South Central',
+    AZ: 'Mountain', CO: 'Mountain', ID: 'Mountain', MT: 'Mountain', NV: 'Mountain', NM: 'Mountain', UT: 'Mountain', WY: 'Mountain',
+    AK: 'Pacific', CA: 'Pacific', HI: 'Pacific', OR: 'Pacific', WA: 'Pacific',
+  };
+  // 2020 census resident population.
+  const POP = {
+    CA: 39538223, TX: 29145505, FL: 21538187, NY: 20201249, PA: 13002700, IL: 12812508, OH: 11799448,
+    GA: 10711908, NC: 10439388, MI: 10077331, NJ: 9288994, VA: 8631393, WA: 7705281, AZ: 7151502,
+    MA: 7029917, TN: 6910840, IN: 6785528, MD: 6177224, MO: 6154913, WI: 5893718, CO: 5773714,
+    MN: 5706494, SC: 5118425, AL: 5024279, LA: 4657757, KY: 4505836, OR: 4237256, OK: 3959353,
+    CT: 3605944, UT: 3271616, IA: 3190369, NV: 3104614, AR: 3011524, MS: 2961279, KS: 2937880,
+    NM: 2117522, NE: 1961504, ID: 1839106, WV: 1793716, HI: 1455271, NH: 1377529, ME: 1362359,
+    RI: 1097379, MT: 1084225, DE: 989948, SD: 886667, ND: 779094, AK: 733391, DC: 689545,
+    VT: 643077, WY: 576851,
+  };
+  const AREA_KM2 = {
+    AK: 1723337, TX: 695662, CA: 423967, MT: 380831, NM: 314917, AZ: 295234, NV: 286380, CO: 269601,
+    OR: 254799, WY: 253335, MI: 250487, MN: 225163, UT: 219882, ID: 216443, KS: 213100, NE: 200330,
+    SD: 199729, WA: 184661, ND: 183108, OK: 181037, MO: 180540, FL: 170312, WI: 169635, GA: 153910,
+    IL: 149995, IA: 145746, NY: 141297, NC: 139391, AR: 137732, AL: 135767, LA: 135659, MS: 125438,
+    PA: 119280, OH: 116098, VA: 110787, TN: 109153, KY: 104656, IN: 94326, ME: 91633, SC: 82933,
+    WV: 62756, MD: 32131, HI: 28313, MA: 27336, VT: 24906, NH: 24214, NJ: 22591, CT: 14357,
+    DE: 6446, RI: 4001, DC: 177,
+  };
+
+  const stateMeta = req('us-state-flags/src/data/states.json');
+  const capByName = new Map(stateMeta.map((s) => [s.name, s.capital]));
+  const sflags = {};
+
+  const flagDir = path.join(HERE, 'node_modules/us-state-flags/src/components/flags');
+  const readStateFlag = (code) => {
+    const file = path.join(flagDir, `Flag${code}.js`);
+    if (!fs.existsSync(file)) return null;
+    const src = fs.readFileSync(file, 'utf8');
+    const vb = (src.match(/viewBox:\s*'([^']+)'/) || [])[1] || '0 0 250 167';
+    const html = (src.match(/__html:\s*`([\s\S]*?)`\s*\}/) || [])[1] || '';
+    if (!html) return null;
+    const inner = html
+      .replace(/<!--[\s\S]*?-->/g, '')
+      // Trim path/point coordinates to one decimal; at flag scale the loss is
+      // invisible and it roughly halves the payload.
+      .replace(/-?\d+\.\d{2,}/g, (n) => (+n).toFixed(1))
+      .replace(/>\s+</g, '><')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${vb}" preserveAspectRatio="none">${inner}</svg>`;
+  };
+
+  // Decode every state, find the raw Albers bounds, then scale+offset the
+  // whole set into the world coordinate box so pin thresholds and zoom limits
+  // behave the same as they do for countries.
+  const raw = [];
+  for (const geom of topo.objects.states.geometries) {
+    const usps = FIPS_TO_USPS[geom.id];
+    if (!usps) continue;
+    raw.push({ usps, name: geom.properties.name, polygons: geometryToPolygons(stArcs, geom), arcIds: collectArcs(geom) });
+  }
+  let ax0 = Infinity;
+  let ay0 = Infinity;
+  let ax1 = -Infinity;
+  let ay1 = -Infinity;
+  for (const r of raw) for (const poly of r.polygons) for (const [x, y] of poly[0]) {
+    if (x < ax0) ax0 = x;
+    if (y < ay0) ay0 = y;
+    if (x > ax1) ax1 = x;
+    if (y > ay1) ay1 = y;
+  }
+  // Fill ~75% of the world width; keep the block clear of the antimeridian
+  // wrap zone (x < 13% of W) so no state ever gets a spurious wrapped copy.
+  const k = (W * 0.75) / (ax1 - ax0);
+  const offX = W * 0.16;
+  const offY = (H - (ay1 - ay0) * k) / 2;
+  const put = ([x, y]) => [offX + (x - ax0) * k, offY + (y - ay0) * k];
+
+  const features = [];
+  const tol = 0.4 * k; // ~0.4 Albers px
+  for (const r of raw) {
+    const projected = r.polygons.map((poly) => poly.map((ring) => ring.map(put)));
+    const shape = buildShape(projected, { project: false, tolerance: tol, speck: 2 * k * k, gate: 40 * k * k });
+    features.push({
+      id: `US-${r.usps}`,
+      n: r.name,
+      o: `State of ${r.name}`,
+      c: 'US',
+      s: DIVISION[r.usps] || 'United States',
+      cap: capByName.get(r.name) || '',
+      pop: POP[r.usps] || 0,
+      km: AREA_KM2[r.usps] || 0,
+      ll: [],
+      nb: [],
+      t: r.usps === 'DC' ? 1 : 0,
+      b: shape.bbox,
+      m: shape.mainBox,
+      l: shape.label,
+      a: shape.projArea,
+      d: ringsToPath(shape.rings),
+      _arcs: r.arcIds,
+    });
+    sflags[`US-${r.usps}`] = readStateFlag(r.usps);
+  }
+
+  // Adjacency from shared arcs — nice for the explore card, cheap to compute.
+  for (const a of features) {
+    for (const b of features) {
+      if (a === b) continue;
+      if ([...a._arcs].some((id) => b._arcs.has(id))) a.nb.push(b.id);
+    }
+  }
+  for (const a of features) delete a._arcs;
+
+  const noFlag = features.filter((f) => !sflags[f.id]).map((f) => f.id);
+  if (noFlag.length) console.warn('! states missing a flag:', noFlag.join(', '));
+
+  features.sort((a, b) => a.n.localeCompare(b.n));
+
+  // Faint silhouette of the whole country, drawn under the states.
+  const nation = geometryToPolygons(stArcs, topo.objects.nation.geometries[0])
+    .map((poly) => poly.map((ring) => simplify(ring.map(put), tol)).filter((ring) => ring.length >= 4))
+    .flatMap((rings) => rings);
+
+  const bb = [
+    Math.round(offX), Math.round(offY),
+    Math.round(offX + (ax1 - ax0) * k), Math.round(offY + (ay1 - ay0) * k),
+  ];
+  return {
+    fit: bb,
+    base: ringsToPath(nation),
+    features,
+    flags: sflags,
+  };
+}
+
+/** Arc indices touched by a geometry, sign-normalised, as a Set. */
+function collectArcs(geom) {
+  const out = new Set();
+  const walk = (a) => {
+    if (typeof a === 'number') out.add(a < 0 ? ~a : a);
+    else if (Array.isArray(a)) a.forEach(walk);
+  };
+  walk(geom.arcs);
+  return out;
+}
+
 // ------------------------------------------------------------------ emit ---
+
+const statesData = buildStates();
 
 const flags = {};
 for (const c of countries) flags[c.id] = readFlag(c.id);
+Object.assign(flags, statesData.flags);
 
 const geoData = {
   w: Math.round(W),
@@ -418,11 +601,17 @@ const geoData = {
   antarctica: antarctica ? ringsToPath(antarctica.rings) : '',
   fits,
   countries,
+  states: {
+    fit: statesData.fit,
+    base: statesData.base,
+    features: statesData.features,
+  },
 };
 
 const stats = {
   countries: countries.filter((c) => !c.t).length,
   territories: countries.filter((c) => c.t).length,
+  states: statesData.features.length,
   points: countries.reduce((n, c) => n + (c.d.match(/l/g) || []).length, 0),
 };
 
@@ -442,7 +631,7 @@ fs.writeFileSync(dest, out);
 
 const kb = (n) => `${(n / 1024).toFixed(0)} kB`;
 if (wrapCuts.length) console.log(`antimeridian cuts: ${wrapCuts.join(', ')}`);
-console.log(`countries: ${stats.countries}  territories: ${stats.territories}  vertices: ${stats.points}`);
+console.log(`countries: ${stats.countries}  territories: ${stats.territories}  states: ${stats.states}  vertices: ${stats.points}`);
 console.log(`geometry:  ${kb(JSON.stringify(geoData).length)}`);
 console.log(`flags:     ${kb(JSON.stringify(flags).length)} (${Object.keys(flags).length})`);
 console.log(`wrote ${path.relative(process.cwd(), dest)}  ${kb(out.length)}`);
