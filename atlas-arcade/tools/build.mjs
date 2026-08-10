@@ -554,6 +554,13 @@ function buildStates() {
   const noFlag = features.filter((f) => !sflags[f.id]).map((f) => f.id);
   if (noFlag.length) console.warn('! states missing a flag:', noFlag.join(', '));
 
+  // Flags whose design spells the state's own name in legible letters — the
+  // dead giveaway when you are meant to recognise the flag alone. Marked so
+  // the app can blur them in the deck (only in flag-only mode). The seal-ring
+  // names on other flags trace out illegibly, so they need no help.
+  const NAME_ON_FLAG = new Set(['AR', 'CA', 'IA', 'KS', 'MT', 'ND', 'OK', 'OR', 'SD', 'WI']);
+  for (const f of features) if (NAME_ON_FLAG.has(f.id.slice(3))) f.hn = 1;
+
   features.sort((a, b) => a.n.localeCompare(b.n));
 
   // Faint silhouette of the whole country, drawn under the states.

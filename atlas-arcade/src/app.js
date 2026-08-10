@@ -86,9 +86,35 @@ function flagURL(id) {
   }
   return url;
 }
-function flagImg(id, cls) {
+// A copy of the flag with a Gaussian blur baked in, used for the states whose
+// design spells their own name (Oklahoma, Wisconsin, …). The blur lives in the
+// SVG's own units, so it hides the lettering by the same amount at every
+// display size while leaving the seal a recognisable shape. Used only in the
+// deck, so the crisp flag is still the reward once the state is placed.
+const blurCache = new Map();
+function flagURLNameHidden(id) {
+  if (blurCache.has(id)) return blurCache.get(id);
+  const svg = FLAG_SVG[id];
+  const m = svg && svg.match(/viewBox="\s*[\d.]+\s+[\d.]+\s+([\d.]+)/);
+  let url;
+  if (!m) {
+    url = flagURL(id);
+  } else {
+    const sd = (parseFloat(m[1]) / 55).toFixed(2);
+    const open = svg.slice(0, svg.indexOf('>') + 1);
+    const inner = svg.slice(svg.indexOf('>') + 1, svg.lastIndexOf('</svg>'));
+    const out = `${open}<defs><filter id="hn" x="-8%" y="-8%" width="116%" height="116%">`
+      + `<feGaussianBlur stdDeviation="${sd}"/></filter></defs>`
+      + `<g filter="url(#hn)">${inner}</g></svg>`;
+    url = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(out)}`;
+  }
+  blurCache.set(id, url);
+  return url;
+}
+
+function flagImg(id, cls, src) {
   const img = el('img', cls);
-  img.src = flagURL(id);
+  img.src = src || flagURL(id);
   img.alt = '';
   img.draggable = false;
   return img;
@@ -1098,7 +1124,11 @@ function makeChip(id, queued) {
   const c = BY_ID.get(id);
   const chip = el('div', `chip mode-${state.chipMode}${queued ? ' queued' : ''}`);
   chip.dataset.chip = id;
-  if (state.chipMode !== 'name') chip.appendChild(flagImg(id));
+  if (state.chipMode !== 'name') {
+    // Hide the printed name only when the flag alone is the question.
+    const src = (c.hn && state.chipMode === 'flag') ? flagURLNameHidden(id) : flagURL(id);
+    chip.appendChild(flagImg(id, null, src));
+  }
   if (state.chipMode !== 'flag') {
     const box = el('div');
     const name = el('div', 'cname');

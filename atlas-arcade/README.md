@@ -24,6 +24,14 @@ The **US states** mode works exactly like the world game — drag a state's flag
 in with their flag — but on an Albers USA map that keeps Alaska and Hawaii
 readable. Progress and personal bests are tracked separately from the world.
 
+Ten state flags spell the state's own name in big letters (Oklahoma, Wisconsin,
+Kansas, Montana, Oregon, the Dakotas, Arkansas, Iowa, California). In flag-only
+mode those names would just hand you the answer, so the deck card blurs them —
+enough to make the lettering unreadable while the seal and colours still read.
+The blur is baked into the flag's own SVG units, so it holds at any card size;
+the crisp flag returns the moment you place the state, and in name/both modes
+(where the name is shown anyway) nothing is blurred.
+
 **Pick what you drag**
 
 | Mode | What's on the card |
