@@ -43,6 +43,36 @@ the crisp flag returns the moment you place the state, and in name/both modes
 **Pick how you play** — Practice (no clock, no lives), Time rush (fast answers
 score more), or Survival (three lives, streak multipliers).
 
+## Study first
+
+Before you go placing things on the map, the **Study Deck** (📚 on the menu)
+is a Quizlet-style way to learn the flags, countries, and capitals. Everything
+covers both countries and US states.
+
+![the study deck: which country is this flag?](docs/study.png)
+
+You choose a **prompt** and an **answer** from three facets — flag, country/state,
+and capital — so you can drill exactly the link you want:
+
+- Flag → country ("whose flag is this?")
+- Flag → capital
+- Country → capital, or capital → country
+- Country/capital → flag
+
+…and a **format**:
+
+- **Learn** — adaptive. Every card starts as multiple choice; once you've got it
+  you're asked to type it, and anything you miss comes back until it sticks.
+- **Multiple choice** — pick from four (distractors are drawn from the same
+  region, so it's a real test).
+- **Type it** — spell the answer. Accents, case, punctuation, `&`/`and`, `St.`/
+  `Saint` and common aliases (USA, UK, Burma…) are all forgiven.
+- **Match** — tap the pairs as fast as you can, a board at a time.
+
+Each session ends with a score and a review list of what to look at again, plus
+a one-tap **Play it on the map** to jump straight into the map game for the same
+region.
+
 ## Reaching the small countries
 
 Microstates are the reason most map games are annoying, so several things
@@ -90,11 +120,11 @@ through a continent by just tapping the map over and over.
 
 ```
 atlas-arcade/
-  index.html          the game — generated, self-contained, ~2 MB
+  index.html          the game — generated, self-contained, ~3.8 MB
   src/
     index.html        page shell (template)
     styles.css
-    app.js            map engine + game logic
+    app.js            map engine, game logic, and the study deck
   tools/
     build.mjs         assembles index.html from src/ + the data packages
     geo.mjs           TopoJSON decode, Robinson projection, simplify, polylabel

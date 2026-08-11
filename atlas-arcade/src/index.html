@@ -95,6 +95,7 @@
 
       <div class="start-row">
         <button id="btnStart" class="start">Start<span class="start-sub" id="startSub"></span></button>
+        <button id="btnStudy" class="ghost-btn">📚 Study first</button>
         <button id="btnExplore" class="ghost-btn">🧭 Explore the map</button>
         <button id="btnReset" class="ghost-btn subtle">Reset progress</button>
       </div>
@@ -121,6 +122,59 @@
   </div>
 
   <div id="pauseVeil" hidden><div>Paused<small>click to resume</small></div></div>
+
+  <!-- ---------------------------------------------------- study setup -->
+  <div id="studySetup" class="overlay" hidden>
+    <div class="sheet">
+      <div class="brand">
+        <div class="brand-mark">📚</div>
+        <div>
+          <h1><b>Study</b> Deck</h1>
+          <p class="tagline">Learn the flags, countries, and capitals — <b>then</b> go place them on the map.</p>
+        </div>
+      </div>
+
+      <section class="block">
+        <h2>1 · What are you learning?</h2>
+        <div id="studyRegion" class="region-grid"></div>
+      </section>
+
+      <div class="study-dir">
+        <section class="block block--tight">
+          <h2>2 · Show me</h2>
+          <div id="studyPrompt" class="facet-row"></div>
+        </section>
+        <div class="dir-arrow">→</div>
+        <section class="block block--tight">
+          <h2>3 · I answer with</h2>
+          <div id="studyAnswer" class="facet-row"></div>
+        </section>
+      </div>
+
+      <section class="block">
+        <h2>4 · How do you want to study?</h2>
+        <div id="studyFormat" class="opt-row"></div>
+      </section>
+
+      <div class="start-row">
+        <button id="btnStudyStart" class="start">Start studying<span class="start-sub" id="studySub"></span></button>
+        <button id="btnStudyBack" class="ghost-btn">Back to map setup</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- --------------------------------------------------- study screen -->
+  <div id="study" hidden>
+    <header id="studyBar">
+      <button id="studyQuit" class="tb-btn"><span class="tb-ico">◀</span><span class="tb-label">Setup</span></button>
+      <div class="tb-title" id="studyTitle"></div>
+      <div class="tb-spacer"></div>
+      <div class="study-pill" id="studyProg"></div>
+      <div class="study-pill" id="studyScore"></div>
+    </header>
+    <div id="studyProgBar"><i></i></div>
+    <div id="studyBody"></div>
+  </div>
 </div>
 
 <script>/*__GEO__*/</script>

@@ -1433,17 +1433,18 @@ function paintMenuBackdrop() {
   fitBox = states ? GEO.states.fit : GEO.fits.WORLD;
 }
 
+const REGION_LIST = [
+  ['WORLD', '🌍', 'The whole world', '#4fd1c5'],
+  ...Object.entries(CONTINENTS).map(([k, v]) => [k, v.icon, v.name, v.hue]),
+  ['USA', '🇺🇸', 'US states', '#6c8cff'],
+  ['TINY', '🔬', 'Tiny nations', '#ffd166'],
+  ['TROUBLE', '🎯', 'Trouble spots', '#ff6b7a'],
+];
+
 function renderMenu() {
   const grid = $('#regionGrid');
   grid.innerHTML = '';
-  const regions = [
-    ['WORLD', '🌍', 'The whole world', '#4fd1c5'],
-    ...Object.entries(CONTINENTS).map(([k, v]) => [k, v.icon, v.name, v.hue]),
-    ['USA', '🇺🇸', 'US states', '#6c8cff'],
-    ['TINY', '🔬', 'Tiny nations', '#ffd166'],
-    ['TROUBLE', '🎯', 'Trouble spots', '#ff6b7a'],
-  ];
-  for (const [key, icon, name, hue] of regions) {
+  for (const [key, icon, name, hue] of REGION_LIST) {
     const ids = poolFor(key);
     const card = el('button', `rcard${state.region === key ? ' sel' : ''}${!ids.length ? ' disabled' : ''}`);
     card.style.setProperty('--rc', hue);
@@ -1536,6 +1537,8 @@ $('#pauseVeil').onclick = () => {
 };
 
 document.addEventListener('keydown', (e) => {
+  // Study runs its own keyboard handling and covers the whole screen.
+  if (!$('#study').hidden || !$('#studySetup').hidden) return;
   if (e.target.tagName === 'INPUT') { if (e.key === 'Escape') e.target.blur(); return; }
   const k = e.key.toLowerCase();
   if (k === 'escape') openMenu();
@@ -1567,6 +1570,596 @@ addEventListener('resize', () => {
   }, 120);
 });
 addEventListener('scroll', measure, true);
+
+// ==================================================================== study
+//
+// A Quizlet-style deck for learning flags, countries and capitals before you
+// go place them on the map. You pick a prompt facet and an answer facet
+// (flag / country / capital) and a format: multiple choice, typing, matching,
+// or an adaptive "Learn" that repeats what you miss and steps up from
+// multiple choice to typing.
+
+const FACETS = {
+  flag: { icon: '🏳️', label: 'Flag' },
+  name: { icon: '🗺️', label: 'Country' },
+  cap: { icon: '🏛️', label: 'Capital' },
+};
+
+const STUDY_FORMATS = {
+  learn: { icon: '🎓', title: 'Learn', desc: 'Adaptive — repeats what you miss until it sticks.' },
+  mc: { icon: '🔤', title: 'Multiple choice', desc: 'Pick the right answer from four.' },
+  type: { icon: '⌨️', title: 'Type it', desc: 'Spell the answer out. Accents and case are forgiven.' },
+  match: { icon: '🧩', title: 'Match', desc: 'Tap the pairs as fast as you can.' },
+};
+
+// Extra spellings accepted when typing, keyed by feature id.
+const ALIASES = {
+  US: ['usa', 'us', 'united states of america', 'america'],
+  GB: ['uk', 'britain', 'great britain'],
+  AE: ['uae'],
+  KR: ['south korea', 'korea'], KP: ['north korea'],
+  CD: ['drc', 'congo kinshasa', 'democratic republic of congo'],
+  CG: ['congo', 'congo brazzaville'],
+  CZ: ['czech republic'], CI: ['ivory coast', "cote d'ivoire"],
+  TL: ['east timor'], CV: ['cape verde'], SZ: ['swaziland'], MM: ['burma'],
+  MK: ['macedonia'], NL: ['holland'], RU: ['russian federation'],
+  LA: ['lao'], VA: ['holy see', 'vatican'], TR: ['turkey'], VN: ['viet nam'],
+  'US-DC': ['dc', 'washington dc'],
+};
+
+const MATCH_PER_BOARD = 6;
+
+const study = {
+  prompt: 'flag',
+  answer: 'name',
+  format: 'learn',
+  items: [],
+  order: [],
+  box: new Map(),
+  need: 1,
+  queue: [],
+  i: 0,
+  correct: 0,
+  wrong: 0,
+  answered: 0,
+  total: 0,
+  missed: new Map(),
+  locked: false,
+  keyHandler: null,
+  // match
+  boards: [],
+  boardIdx: 0,
+  sel: null,
+  matchMistakes: 0,
+  startedAt: 0,
+};
+
+const nameNoun = () => (isStatesRegion(state.region) ? 'state' : 'country');
+
+/** Normalises a typed answer: fold accents, unify punctuation and spacing. */
+function norm(s) {
+  return s.toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/&/g, ' and ')
+    .replace(/\b(st|ste)\b\.?/g, 'saint')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+const studyFlag = (id) => (BY_ID.get(id).hn ? flagURLNameHidden(id) : flagURL(id));
+const facetText = (c, facet) => (facet === 'cap' ? c.cap : c.n);
+
+/** Strings that count as a correct typed answer for this item. */
+function acceptable(id) {
+  const c = BY_ID.get(id);
+  const set = study.answer === 'cap' ? [c.cap] : [c.n, c.o, ...(ALIASES[id] || [])];
+  return set.filter(Boolean).map(norm);
+}
+
+// -------------------------------------------------------------- study setup
+
+function openStudySetup() {
+  $('#menu').hidden = true;
+  $('#study').hidden = true;
+  $('#studySetup').hidden = false;
+  if (study.answer === study.prompt) study.answer = study.prompt === 'name' ? 'cap' : 'name';
+  renderStudySetup();
+}
+
+function renderStudySetup() {
+  // region cards (reuse the map's set and progress bars)
+  const grid = $('#studyRegion');
+  grid.innerHTML = '';
+  for (const [key, icon, name, hue] of REGION_LIST) {
+    const ids = poolFor(key);
+    const card = el('button', `rcard${state.region === key ? ' sel' : ''}${!ids.length ? ' disabled' : ''}`);
+    card.style.setProperty('--rc', hue);
+    const noun = key === 'USA' ? 'states' : 'places';
+    card.innerHTML = `<div class="rname">${icon} ${name}</div>
+      <div class="rmeta">${ids.length ? `${ids.length} ${noun}` : 'Nothing here yet'}</div>`;
+    card.onclick = () => { state.region = key; renderStudySetup(); };
+    grid.appendChild(card);
+  }
+
+  const nounCap = isStatesRegion(state.region) ? 'State' : 'Country';
+  renderFacetRow('#studyPrompt', 'prompt', nounCap);
+  renderFacetRow('#studyAnswer', 'answer', nounCap);
+
+  const fmt = $('#studyFormat');
+  fmt.innerHTML = '';
+  for (const [key, info] of Object.entries(STUDY_FORMATS)) {
+    const b = el('button', `opt${study.format === key ? ' sel' : ''}`);
+    b.innerHTML = `<div class="oico">${info.icon}</div>
+      <div><div class="otitle">${info.title}</div><div class="odesc">${info.desc}</div></div>`;
+    b.onclick = () => { study.format = key; reconcileFacets(); renderStudySetup(); };
+    fmt.appendChild(b);
+  }
+
+  const n = poolFor(state.region).length;
+  $('#studySub').textContent = `${n} ${isStatesRegion(state.region) ? 'states' : 'cards'} · ${FACETS[study.prompt].label} → ${FACETS[study.answer].label}`;
+  $('#btnStudyStart').disabled = !n;
+}
+
+function renderFacetRow(sel, role, nounCap) {
+  const host = $(sel);
+  host.innerHTML = '';
+  for (const [key, info] of Object.entries(FACETS)) {
+    const b = el('button', `facet${study[role] === key ? ' sel' : ''}`);
+    const label = key === 'name' ? nounCap : info.label;
+    // Can't type a flag, and prompt/answer must differ.
+    const disabled = (role === 'answer' && key === study.prompt)
+      || (role === 'prompt' && key === study.answer)
+      || (role === 'answer' && key === 'flag' && study.format === 'type');
+    b.disabled = disabled;
+    b.innerHTML = `<span class="fico">${info.icon}</span><span class="flbl">${label}</span>`;
+    b.onclick = () => {
+      study[role] = key;
+      // Keep the pair distinct.
+      if (study.prompt === study.answer) {
+        const other = role === 'prompt' ? 'answer' : 'prompt';
+        study[other] = key === 'flag' ? 'name' : 'flag';
+      }
+      reconcileFacets();
+      renderStudySetup();
+    };
+    host.appendChild(b);
+  }
+}
+
+/** Formats and facets that can't coexist get nudged into a valid combo. */
+function reconcileFacets() {
+  if (study.format === 'type' && study.answer === 'flag') {
+    study.answer = study.prompt === 'name' ? 'cap' : 'name';
+  }
+  if (study.prompt === study.answer) study.answer = study.prompt === 'flag' ? 'name' : 'flag';
+}
+
+// ------------------------------------------------------------- study session
+
+function startStudy() {
+  reconcileFacets();
+  study.items = shuffle(poolFor(state.region));
+  if (!study.items.length) return;
+  study.correct = 0;
+  study.wrong = 0;
+  study.answered = 0;
+  study.missed = new Map();
+  study.locked = false;
+  study.startedAt = performance.now();
+
+  $('#studySetup').hidden = true;
+  $('#menu').hidden = true;
+  $('#study').hidden = false;
+  $('#studyTitle').textContent = `${regionIcon(state.region)} ${regionLabel(state.region)} · ${STUDY_FORMATS[study.format].title}`;
+
+  if (study.format === 'match') {
+    startMatch();
+  } else if (study.format === 'learn') {
+    study.need = study.answer === 'flag' ? 2 : 2;
+    study.box = new Map(study.items.map((id) => [id, 0]));
+    study.order = study.items.slice();
+    study.total = study.items.length * study.need;
+    nextLearn();
+  } else {
+    study.queue = study.items.slice();
+    study.total = study.items.length;
+    study.i = 0;
+    nextDrill();
+  }
+  installStudyKeys();
+}
+
+function studyProgress(done, total) {
+  $('#studyProg').innerHTML = `<b>${done}</b> / ${total}`;
+  $('#studyScore').innerHTML = `<span class="sc-good">${study.correct}✓</span> · ${study.wrong}✗`;
+  $('#studyProgBar').firstElementChild.style.width = `${total ? (done / total) * 100 : 0}%`;
+}
+
+// --- straight drills: multiple choice / type, each card once ---
+function nextDrill() {
+  study.locked = false;
+  if (study.i >= study.queue.length) { studySummary(); return; }
+  studyProgress(study.answered, study.total);
+  renderQuestion(study.queue[study.i], study.format);
+}
+
+function advanceDrill() {
+  study.i++;
+  nextDrill();
+}
+
+// --- adaptive learn: box per item, mc then type, requeue misses ---
+function nextLearn() {
+  study.locked = false;
+  const done = [...study.box.values()].reduce((s, b) => s + Math.min(b, study.need), 0);
+  studyProgress(done, study.total);
+  if (done >= study.total) { studySummary(); return; }
+  // Next item still below mastery, cycling through the order.
+  let pick = null;
+  for (let n = 0; n < study.order.length; n++) {
+    const id = study.order[(study.learnPtr = ((study.learnPtr || 0) + 1) % study.order.length)];
+    if (study.box.get(id) < study.need) { pick = id; break; }
+  }
+  if (!pick) { studySummary(); return; }
+  const box = study.box.get(pick);
+  const textAnswer = study.answer !== 'flag';
+  const mode = box === 0 || !textAnswer ? 'mc' : 'type';
+  renderQuestion(pick, mode);
+}
+
+function onLearnResult(id, correct) {
+  const b = study.box.get(id);
+  study.box.set(id, correct ? b + 1 : Math.max(0, b - 1));
+  if (!correct) {
+    // Re-queue soon by moving it a few slots ahead in the order.
+    const idx = study.order.indexOf(id);
+    if (idx !== -1) {
+      study.order.splice(idx, 1);
+      study.order.splice(Math.min(idx + 3, study.order.length), 0, id);
+    }
+  }
+}
+
+// ------------------------------------------------------ question rendering
+
+function renderQuestion(id, mode) {
+  const c = BY_ID.get(id);
+  const body = $('#studyBody');
+  body.innerHTML = '';
+  const q = el('div', 'q');
+
+  const ans = study.answer;
+  const askLabel = ans === 'flag' ? 'Pick its flag'
+    : ans === 'cap' ? 'Which capital?'
+      : (isStatesRegion(state.region) ? 'Which state?' : 'Which country?');
+  const kind = study.prompt === 'cap' ? 'CAPITAL' : study.prompt === 'name' ? nameNoun().toUpperCase() : '';
+
+  q.innerHTML = `<div class="q-label">${askLabel}</div>`;
+  const prompt = el('div', 'q-prompt');
+  if (study.prompt === 'flag') {
+    const img = el('img');
+    img.src = studyFlag(id);
+    img.alt = '';
+    prompt.appendChild(img);
+  } else {
+    const t = el('div', 'q-text');
+    t.textContent = facetText(c, study.prompt);
+    prompt.appendChild(t);
+  }
+  q.appendChild(prompt);
+  if (kind && study.prompt !== 'flag') {
+    const s = el('div', 'q-sub');
+    s.textContent = kind === 'CAPITAL' ? 'capital city' : kind.toLowerCase();
+    q.appendChild(s);
+  }
+
+  if (mode === 'mc') renderMC(q, id);
+  else renderType(q, id);
+
+  body.appendChild(q);
+}
+
+function renderMC(q, id) {
+  const opts = shuffle([id, ...distractors(id, 3)]);
+  const wrap = el('div', `q-opts${study.answer === 'flag' ? ' flags' : ''}`);
+  opts.forEach((oid, n) => {
+    const c = BY_ID.get(oid);
+    const b = el('button', `opt-btn${study.answer === 'flag' ? ' flag' : ''}`);
+    b.dataset.oid = oid;
+    if (study.answer === 'flag') {
+      const img = el('img');
+      img.src = studyFlag(oid);
+      img.alt = '';
+      b.appendChild(img);
+    } else {
+      b.innerHTML = `<span>${facetText(c, study.answer)}</span><span class="kbd">${n + 1}</span>`;
+    }
+    b.onclick = () => judgeMC(b, wrap, oid, id);
+    wrap.appendChild(b);
+  });
+  q.appendChild(wrap);
+  study._mcButtons = [...wrap.children];
+}
+
+function judgeMC(btn, wrap, chosenId, correctId) {
+  if (study.locked) return;
+  study.locked = true;
+  const correct = chosenId === correctId;
+  for (const b of wrap.children) {
+    b.disabled = true;
+    if (b.dataset.oid === correctId) b.classList.add('correct');
+    else if (b === btn) b.classList.add('wrong');
+    else b.classList.add('dim');
+  }
+  sfx(correct ? 'good' : 'bad');
+  recordAnswer(correctId, correct);
+  scheduleContinue(correct ? 600 : 1500);
+}
+
+function renderType(q, id) {
+  const box = el('div', 'q-type');
+  const input = el('input', 'q-input');
+  input.type = 'text';
+  input.autocomplete = 'off';
+  input.autocapitalize = 'off';
+  input.spellcheck = false;
+  input.placeholder = study.answer === 'cap' ? 'capital…' : `${nameNoun()}…`;
+  const fb = el('div', 'q-feedback');
+  const submit = () => {
+    if (study.locked) return;
+    const val = norm(input.value);
+    if (!val) return;
+    study.locked = true;
+    const correct = acceptable(id).includes(val);
+    input.classList.add(correct ? 'correct' : 'wrong');
+    input.disabled = true;
+    const c = BY_ID.get(id);
+    fb.innerHTML = correct
+      ? '<span class="ok">Correct!</span>'
+      : `<span class="no">Not quite</span> — <b>${facetText(c, study.answer)}</b>`;
+    sfx(correct ? 'good' : 'bad');
+    recordAnswer(id, correct);
+    scheduleContinue(correct ? 650 : 1700);
+  };
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } });
+  box.appendChild(input);
+  box.appendChild(fb);
+  q.appendChild(box);
+  setTimeout(() => input.focus(), 30);
+  study._submit = submit;
+}
+
+function distractors(correctId, n) {
+  const c = BY_ID.get(correctId);
+  const val = (id) => (study.answer === 'flag' ? id : facetText(BY_ID.get(id), study.answer));
+  const seen = new Set([val(correctId)]);
+  const pool = study.items.filter((id) => id !== correctId);
+  const same = shuffle(pool.filter((id) => BY_ID.get(id).s === c.s));
+  const rest = shuffle(pool.filter((id) => BY_ID.get(id).s !== c.s));
+  const out = [];
+  for (const id of [...same, ...rest]) {
+    const v = val(id);
+    if (seen.has(v)) continue;
+    seen.add(v);
+    out.push(id);
+    if (out.length >= n) break;
+  }
+  return out;
+}
+
+function recordAnswer(id, correct) {
+  if (correct) study.correct++; else { study.wrong++; if (!study.missed.has(id)) study.missed.set(id, true); }
+  if (study.format === 'learn') onLearnResult(id, correct);
+  else study.answered++;
+}
+
+let continueTimer = 0;
+function scheduleContinue(delay) {
+  clearTimeout(continueTimer);
+  study._continue = () => { clearTimeout(continueTimer); study._continue = null; nextTask(); };
+  continueTimer = setTimeout(() => { if (study._continue) study._continue(); }, delay);
+}
+
+function nextTask() {
+  if (study.format === 'learn') nextLearn();
+  else advanceDrill();
+}
+
+// -------------------------------------------------------------------- match
+
+function startMatch() {
+  const chunks = [];
+  const ids = study.items.slice();
+  for (let i = 0; i < ids.length; i += MATCH_PER_BOARD) chunks.push(ids.slice(i, i + MATCH_PER_BOARD));
+  study.boards = chunks;
+  study.boardIdx = 0;
+  study.matchMistakes = 0;
+  study.total = ids.length;
+  study.matched = 0;
+  renderMatch();
+}
+
+function renderMatch() {
+  const body = $('#studyBody');
+  body.innerHTML = '';
+  studyProgress(study.matched, study.total);
+  const ids = study.boards[study.boardIdx];
+  const wrap = el('div', 'match-wrap');
+  wrap.innerHTML = `<div class="match-head">Tap a ${FACETS[study.prompt].label.toLowerCase()} and its matching ${FACETS[study.answer].label.toLowerCase()} · board ${study.boardIdx + 1} of ${study.boards.length}</div>`;
+  const grid = el('div', 'match-grid');
+  const tiles = [];
+  for (const id of ids) {
+    tiles.push({ id, side: 'p' });
+    tiles.push({ id, side: 'a' });
+  }
+  study.sel = null;
+  for (const t of shuffle(tiles)) {
+    const facet = t.side === 'p' ? study.prompt : study.answer;
+    const tile = el('div', 'tile');
+    tile.dataset.id = t.id;
+    tile.dataset.side = t.side;
+    if (facet === 'flag') {
+      const img = el('img');
+      img.src = studyFlag(t.id);
+      img.alt = '';
+      tile.appendChild(img);
+    } else {
+      tile.textContent = facetText(BY_ID.get(t.id), facet);
+    }
+    tile.onclick = () => onMatchTap(tile);
+    grid.appendChild(tile);
+  }
+  wrap.appendChild(grid);
+  body.appendChild(wrap);
+}
+
+function onMatchTap(tile) {
+  if (tile.classList.contains('gone') || tile.classList.contains('sel')) return;
+  const sel = study.sel;
+  if (!sel) { study.sel = tile; tile.classList.add('sel'); return; }
+  study.sel = null;
+  sel.classList.remove('sel');
+  const pair = sel.dataset.id === tile.dataset.id && sel.dataset.side !== tile.dataset.side;
+  if (pair) {
+    sfx('good');
+    for (const t of [sel, tile]) { t.classList.add('hit'); setTimeout(() => t.classList.add('gone'), 180); }
+    study.matched++;
+    study.correct++;
+    studyProgress(study.matched, study.total);
+    // Board is done once no tiles remain (the two just matched included).
+    setTimeout(() => {
+      if (![...$('#studyBody').querySelectorAll('.tile:not(.gone)')].length) nextBoard();
+    }, 240);
+  } else {
+    sfx('bad');
+    study.matchMistakes++;
+    study.wrong++;
+    for (const t of [sel, tile]) {
+      t.classList.add('miss');
+      setTimeout(() => t.classList.remove('miss'), 380);
+    }
+  }
+}
+
+function nextBoard() {
+  if (study.boardIdx >= study.boards.length - 1) { studySummary(); return; }
+  study.boardIdx++;
+  renderMatch();
+}
+
+// ------------------------------------------------------------------ summary
+
+function studySummary() {
+  removeStudyKeys();
+  const total = study.format === 'match' ? study.total : (study.format === 'learn' ? study.items.length : study.total);
+  const acc = (study.correct + study.wrong) ? Math.round((study.correct / (study.correct + study.wrong)) * 100) : 100;
+  const secs = Math.round((performance.now() - study.startedAt) / 1000);
+  const missedIds = [...study.missed.keys()];
+  if (acc >= 90 && !missedIds.length) confetti();
+  sfx('win');
+
+  const body = $('#studyBody');
+  const ringClass = acc >= 85 ? 'good' : acc >= 60 ? 'mid' : 'low';
+  const headline = study.format === 'match' ? 'Board cleared!' : 'Deck complete!';
+  const wrap = el('div', 'study-summary');
+  wrap.innerHTML = `
+    <div class="ring ${ringClass}">${acc}%</div>
+    <div class="big">${headline}</div>
+    <div class="sub">${regionLabel(state.region)} · ${FACETS[study.prompt].label} → ${FACETS[study.answer].label}
+      · ${study.correct} right${study.wrong ? ` · ${study.wrong} to review` : ''}
+      · ${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}</div>`;
+
+  if (missedIds.length) {
+    const rev = el('div', 'study-review');
+    rev.innerHTML = `<h3>Worth another look (${missedIds.length})</h3>`
+      + missedIds.map((id) => {
+        const c = BY_ID.get(id);
+        return `<div class="row"><img src="${flagURL(id)}" alt=""><b>${c.n}</b><span class="arrow">·</span>${c.cap}</div>`;
+      }).join('');
+    wrap.appendChild(rev);
+  }
+
+  const row = el('div', 'start-row');
+  const again = el('button', 'q-btn');
+  again.textContent = 'Study again';
+  again.onclick = startStudy;
+  row.appendChild(again);
+
+  if (missedIds.length && study.format !== 'match') {
+    const drill = el('button', 'q-btn ghost');
+    drill.textContent = 'Review missed';
+    drill.onclick = () => { study.items = shuffle(missedIds); studyReplayMissed(); };
+    row.appendChild(drill);
+  }
+  const toMap = el('button', 'q-btn ghost');
+  toMap.textContent = '🗺 Play it on the map';
+  toMap.onclick = () => { $('#study').hidden = true; startGame(); };
+  row.appendChild(toMap);
+
+  const setup = el('button', 'q-btn ghost');
+  setup.textContent = 'Change setup';
+  setup.onclick = openStudySetup;
+  row.appendChild(setup);
+
+  wrap.appendChild(row);
+  body.innerHTML = '';
+  body.appendChild(wrap);
+}
+
+function studyReplayMissed() {
+  study.correct = 0;
+  study.wrong = 0;
+  study.answered = 0;
+  study.missed = new Map();
+  study.startedAt = performance.now();
+  installStudyKeys();
+  if (study.format === 'learn') {
+    study.need = study.answer === 'flag' ? 2 : 2;
+    study.box = new Map(study.items.map((id) => [id, 0]));
+    study.order = study.items.slice();
+    study.total = study.items.length * study.need;
+    nextLearn();
+  } else if (study.format === 'match') {
+    startMatch();
+  } else {
+    study.queue = study.items.slice();
+    study.total = study.items.length;
+    study.i = 0;
+    nextDrill();
+  }
+}
+
+// ------------------------------------------------------------------- keys
+
+function installStudyKeys() {
+  removeStudyKeys();
+  study.keyHandler = (e) => {
+    if (e.target.tagName === 'INPUT') return;
+    if (study._continue) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); study._continue(); } return; }
+    if (/^[1-4]$/.test(e.key)) {
+      const b = study._mcButtons && study._mcButtons[+e.key - 1];
+      if (b && !b.disabled) b.click();
+    }
+  };
+  document.addEventListener('keydown', study.keyHandler);
+}
+function removeStudyKeys() {
+  if (study.keyHandler) document.removeEventListener('keydown', study.keyHandler);
+  study.keyHandler = null;
+}
+
+function quitStudy() {
+  removeStudyKeys();
+  clearTimeout(continueTimer);
+  study._continue = null;
+  $('#study').hidden = true;
+  openStudySetup();
+}
+
+$('#btnStudy').onclick = openStudySetup;
+$('#btnStudyBack').onclick = () => { $('#studySetup').hidden = true; openMenu(); };
+$('#btnStudyStart').onclick = startStudy;
+$('#studyQuit').onclick = quitStudy;
 
 // =================================================================== launch
 
