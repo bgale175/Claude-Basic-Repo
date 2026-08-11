@@ -778,7 +778,10 @@ button { cursor: pointer; border: none; background: none; }
 .q-input:focus { border-color: var(--accent-2); background: rgba(255,255,255,.1); }
 .q-input.correct { border-color: var(--good); background: rgba(69,214,138,.12); }
 .q-input.wrong { border-color: var(--bad); background: rgba(255,107,122,.12); }
-.q-feedback { font-size: 14px; min-height: 20px; text-align: center; }
+.q-hint { font-size: 12px; color: var(--ink-faint); text-align: center; }
+.q-note { font-size: 15px; color: var(--ink-dim); align-self: center; }
+.q-note b { color: var(--ink); }
+.q-feedback { font-size: 15px; min-height: 20px; text-align: center; }
 .q-feedback .ok { color: var(--good); font-weight: 700; }
 .q-feedback .no { color: var(--bad); font-weight: 700; }
 .q-feedback b { color: var(--ink); }

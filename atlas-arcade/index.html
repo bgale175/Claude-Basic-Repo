@@ -786,7 +786,10 @@ button { cursor: pointer; border: none; background: none; }
 .q-input:focus { border-color: var(--accent-2); background: rgba(255,255,255,.1); }
 .q-input.correct { border-color: var(--good); background: rgba(69,214,138,.12); }
 .q-input.wrong { border-color: var(--bad); background: rgba(255,107,122,.12); }
-.q-feedback { font-size: 14px; min-height: 20px; text-align: center; }
+.q-hint { font-size: 12px; color: var(--ink-faint); text-align: center; }
+.q-note { font-size: 15px; color: var(--ink-dim); align-self: center; }
+.q-note b { color: var(--ink); }
+.q-feedback { font-size: 15px; min-height: 20px; text-align: center; }
 .q-feedback .ok { color: var(--good); font-weight: 700; }
 .q-feedback .no { color: var(--bad); font-weight: 700; }
 .q-feedback b { color: var(--ink); }
@@ -2906,7 +2909,7 @@ function judgeMC(btn, wrap, chosenId, correctId) {
   }
   sfx(correct ? 'good' : 'bad');
   recordAnswer(correctId, correct);
-  scheduleContinue(correct ? 600 : 1500);
+  studyContinue(wrap.closest('.q'), correct ? null : BY_ID.get(correctId).n);
 }
 
 function renderType(q, id) {
@@ -2917,29 +2920,37 @@ function renderType(q, id) {
   input.autocapitalize = 'off';
   input.spellcheck = false;
   input.placeholder = study.answer === 'cap' ? 'capital…' : `${nameNoun()}…`;
+  const hint = el('div', 'q-hint');
+  hint.textContent = 'Type your answer, or press Enter to reveal it';
   const fb = el('div', 'q-feedback');
+  // Short arm delay so a stray Enter carried over from the previous card's
+  // Continue doesn't instantly reveal this one.
+  const armed = performance.now() + 140;
   const submit = () => {
-    if (study.locked) return;
+    if (study.locked || performance.now() < armed) return;
     const val = norm(input.value);
-    if (!val) return;
     study.locked = true;
-    const correct = acceptable(id).includes(val);
+    const c = BY_ID.get(id);
+    const answer = facetText(c, study.answer);
+    const correct = !!val && acceptable(id).includes(val);
     input.classList.add(correct ? 'correct' : 'wrong');
     input.disabled = true;
-    const c = BY_ID.get(id);
+    hint.remove();
     fb.innerHTML = correct
-      ? '<span class="ok">Correct!</span>'
-      : `<span class="no">Not quite</span> — <b>${facetText(c, study.answer)}</b>`;
+      ? `<span class="ok">Correct!</span> — <b>${answer}</b>`
+      : val
+        ? `<span class="no">Not quite</span> — the answer is <b>${answer}</b>`
+        : `<span class="no">Answer:</span> <b>${answer}</b>`;
     sfx(correct ? 'good' : 'bad');
     recordAnswer(id, correct);
-    scheduleContinue(correct ? 650 : 1700);
+    studyContinue(q, null);
   };
   input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } });
   box.appendChild(input);
+  box.appendChild(hint);
   box.appendChild(fb);
   q.appendChild(box);
   setTimeout(() => input.focus(), 30);
-  study._submit = submit;
 }
 
 function distractors(correctId, n) {
@@ -2966,11 +2977,25 @@ function recordAnswer(id, correct) {
   else study.answered++;
 }
 
-let continueTimer = 0;
-function scheduleContinue(delay) {
-  clearTimeout(continueTimer);
-  study._continue = () => { clearTimeout(continueTimer); study._continue = null; nextTask(); };
-  continueTimer = setTimeout(() => { if (study._continue) study._continue(); }, delay);
+/**
+ * After an answer, wait for the player to move on themselves — no timer — so
+ * they can sit and read the answer for as long as they like. Enter, Space, or
+ * the Continue button advances.
+ */
+function studyContinue(qEl, note) {
+  const bar = el('div', 'q-actions');
+  if (note) {
+    const n = el('div', 'q-note');
+    n.innerHTML = `The answer is <b>${note}</b>`;
+    bar.appendChild(n);
+  }
+  const btn = el('button', 'q-btn');
+  btn.innerHTML = 'Continue <span class="kbd">↵</span>';
+  const go = () => { if (!study._continue) return; study._continue = null; nextTask(); };
+  btn.onclick = go;
+  study._continue = go;
+  bar.appendChild(btn);
+  qEl.appendChild(bar);
 }
 
 function nextTask() {

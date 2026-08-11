@@ -66,8 +66,14 @@ and capital — so you can drill exactly the link you want:
 - **Multiple choice** — pick from four (distractors are drawn from the same
   region, so it's a real test).
 - **Type it** — spell the answer. Accents, case, punctuation, `&`/`and`, `St.`/
-  `Saint` and common aliases (USA, UK, Burma…) are all forgiven.
+  `Saint` and common aliases (USA, UK, Burma…) are all forgiven. Don't know one?
+  Press Enter on an empty box to reveal it.
 - **Match** — tap the pairs as fast as you can, a board at a time.
+
+In multiple choice and typing, a card never advances on its own — after you
+answer (right or wrong) it shows the answer and waits for you to press **Enter**
+(or click **Continue**), so you can sit and read a tricky name for as long as
+you need.
 
 Each session ends with a score and a review list of what to look at again, plus
 a one-tap **Play it on the map** to jump straight into the map game for the same
